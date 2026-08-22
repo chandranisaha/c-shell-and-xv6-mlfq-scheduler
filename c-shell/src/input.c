@@ -1,0 +1,61 @@
+#include "input.h"
+
+#include <stdlib.h>
+#include <unistd.h>
+
+InputResult input_read_line(char **line)
+{
+    if (line == NULL) {
+        return INPUT_ERROR;
+    }
+
+    *line = NULL;
+    size_t capacity = 128;
+    size_t length = 0;
+    *line = malloc(capacity);
+    if (*line == NULL) {
+        return INPUT_ERROR;
+    }
+
+    for (;;) {
+        char character;
+        ssize_t amount = read(STDIN_FILENO, &character, 1);
+
+        if (amount == 0) {
+            if (length == 0) {
+                free(*line);
+                *line = NULL;
+                return INPUT_EOF;
+            }
+            break;
+        }
+
+        if (amount < 0) {
+            free(*line);
+            *line = NULL;
+            return INPUT_ERROR;
+        }
+
+        if (character == '\n') {
+            break;
+        }
+
+        if (length + 1 >= capacity) {
+            size_t new_capacity = capacity * 2;
+            char *expanded = realloc(*line, new_capacity);
+            if (expanded == NULL) {
+                free(*line);
+                *line = NULL;
+                return INPUT_ERROR;
+            }
+            *line = expanded;
+            capacity = new_capacity;
+        }
+
+        (*line)[length] = character;
+        length++;
+    }
+
+    (*line)[length] = '\0';
+    return INPUT_LINE;
+}
