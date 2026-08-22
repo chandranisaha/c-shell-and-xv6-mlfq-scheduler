@@ -1,0 +1,4 @@
+c-shell/build/
+c-shell/shell.out
+*.o
+.cshell_frecency
