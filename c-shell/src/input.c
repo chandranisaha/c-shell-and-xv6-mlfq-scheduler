@@ -1,7 +1,7 @@
 #include "input.h"
 
-#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 InputResult input_read_line(char **line)
 {
@@ -18,17 +18,24 @@ InputResult input_read_line(char **line)
     }
 
     for (;;) {
-        int value = fgetc(stdin);
-        if (value == EOF) {
+        char character;
+        ssize_t amount = read(STDIN_FILENO, &character, 1);
+
+        if (amount == 0) {
             if (length == 0) {
                 free(*line);
                 *line = NULL;
-                return ferror(stdin) ? INPUT_ERROR : INPUT_EOF;
+                return INPUT_EOF;
             }
             break;
         }
 
-        char character = (char)value;
+        if (amount < 0) {
+            free(*line);
+            *line = NULL;
+            return INPUT_ERROR;
+        }
+
         if (character == '\n') {
             break;
         }
