@@ -6,6 +6,7 @@
 
 #define MAX_ARGS 128
 #define MAX_REDIRS 32
+#define MAX_PIPELINE 32
 
 typedef struct {
     char *filename;
@@ -19,6 +20,11 @@ typedef struct {
     size_t redir_count;
     int has_pipeline;
 } FlatCmd;
+
+typedef struct {
+    FlatCmd commands[MAX_PIPELINE];
+    size_t count;
+} Pipeline;
 
 typedef struct {
     int *input_files;
@@ -39,6 +45,7 @@ typedef enum {
 } ExecResult;
 
 int exec_parse_first(const TokenList *tokens, FlatCmd *command);
+int exec_parse_pipeline(const TokenList *tokens, Pipeline *pipeline);
 char *resolve_cmd_path(const char *command_name);
 int input_redirection_open(const FlatCmd *command, InputRedirection *input);
 int input_redirection_connect_child(InputRedirection *input);
