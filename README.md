@@ -84,17 +84,16 @@ Important implementation decisions:
 8. The implementation is compiled with the assignment's C23/POSIX feature
    definitions and warning-as-error flags.
 
-For the detailed design history, file index, corrections, and test evidence,
-see [`DESIGN_LOG.md`](DESIGN_LOG.md). Assignment compliance checks are listed
-in [`ASSIGNMENT_RULES.md`](ASSIGNMENT_RULES.md).
 
 ## Build and run in WSL
 
 ```bash
-cd /mnt/c/Users/CHANDRANI/Downloads/osn-mp1/c-shell
+cd /mnt/c/Users/CHANDRANI/Downloads/mini-project1/c-shell
 make clean && make all
 ./shell.out
 ```
+
+Ctrl+D to quit the shell
 
 The required compiler flags are included in the Makefile. The executable is
 created as `c-shell/shell.out`.
