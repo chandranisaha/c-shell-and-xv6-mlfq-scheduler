@@ -142,6 +142,9 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         Token stage_tokens[MAX_ARGS];
         CommandLine stage_command =
             make_stage_command(command, stage_tokens);
+        if (command->argv[0][0] == '\0') {
+            _exit(0);
+        }
         if (is_builtin_name(command->argv[0])) {
             _exit(builtin_execute(state, &stage_command) == BUILTIN_HANDLED
                       ? 0
@@ -204,6 +207,9 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
     }
     if (parse_result != 0 || command.argc == 0) {
         return EXEC_NOT_HANDLED;
+    }
+    if (command.argv[0][0] == '\0') {
+        return EXEC_HANDLED;
     }
 
     InputRedirection input;

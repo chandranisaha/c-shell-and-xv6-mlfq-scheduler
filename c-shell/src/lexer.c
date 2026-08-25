@@ -1,5 +1,6 @@
 #include "lexer.h"
 
+#include <ctype.h>
 #include <stddef.h>
 #include <stdlib.h>
 
@@ -13,6 +14,11 @@ static int is_special(char character)
 {
     return character == '|' || character == '&' || character == ';' ||
            character == '<' || character == '>';
+}
+
+static int is_unprintable_nonspace(char character)
+{
+    return !isprint((unsigned char)character) && !is_space(character);
 }
 
 static int append_character(char **buffer, size_t *length, size_t *capacity,
@@ -48,6 +54,11 @@ static LexerResult scan_word(const char *line, size_t *position,
             break;
         }
 
+        if (is_unprintable_nonspace(character)) {
+            free(value);
+            return LEXER_INVALID_SYNTAX;
+        }
+
         word_started = 1;
         if (character == '\\') {
             (*position)++;
@@ -65,6 +76,10 @@ static LexerResult scan_word(const char *line, size_t *position,
         if (character == '\'') {
             (*position)++;
             while (line[*position] != '\0' && line[*position] != '\'') {
+                if (is_unprintable_nonspace(line[*position])) {
+                    free(value);
+                    return LEXER_INVALID_SYNTAX;
+                }
                 if (append_character(&value, &length, &capacity,
                                      line[*position]) != 0) {
                     free(value);
@@ -83,6 +98,11 @@ static LexerResult scan_word(const char *line, size_t *position,
         if (character == '"') {
             (*position)++;
             while (line[*position] != '\0' && line[*position] != '"') {
+                if (is_unprintable_nonspace(line[*position]) &&
+                    line[*position] != '\\') {
+                    free(value);
+                    return LEXER_INVALID_SYNTAX;
+                }
                 if (line[*position] == '\\') {
                     (*position)++;
                     if (line[*position] == '\0') {

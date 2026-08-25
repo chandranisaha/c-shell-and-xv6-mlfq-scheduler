@@ -95,6 +95,11 @@ static int print_stream(int fd, int numbered)
             line_buffer_destroy(&line);
             return -1;
         }
+        if (line.length > 0 && line.data[line.length - 1] != '\n' &&
+            fputc('\n', stdout) == EOF) {
+            line_buffer_destroy(&line);
+            return -1;
+        }
         line_buffer_destroy(&line);
     }
 }
@@ -116,14 +121,22 @@ static int write_all(int fd, const char *data, size_t length)
 static int copy_stream(int fd)
 {
     char buffer[PEEK_CHUNK_SIZE];
+    int has_data = 0;
+    char last_character = '\0';
     for (;;) {
         ssize_t amount = read(fd, buffer, sizeof(buffer));
         if (amount == 0) {
+            if (has_data && last_character != '\n' &&
+                write_all(STDOUT_FILENO, "\n", 1) != 0) {
+                return -1;
+            }
             return 0;
         }
         if (amount < 0 || write_all(STDOUT_FILENO, buffer, (size_t)amount) != 0) {
             return -1;
         }
+        has_data = 1;
+        last_character = buffer[amount - 1];
     }
 }
 
@@ -313,6 +326,10 @@ static int print_reverse_stream(int fd, int numbered)
             return -1;
         }
         if (fwrite(line->data, 1, line->length, stdout) != line->length) {
+            return -1;
+        }
+        if (line->length > 0 && line->data[line->length - 1] != '\n' &&
+            fputc('\n', stdout) == EOF) {
             return -1;
         }
     }
