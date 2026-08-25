@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#define INPUT_MAX_LENGTH 1024
+
 InputResult input_read_line(char **line)
 {
     if (line == NULL) {
@@ -38,6 +40,20 @@ InputResult input_read_line(char **line)
 
         if (character == '\n') {
             break;
+        }
+
+        if (length >= INPUT_MAX_LENGTH) {
+            do {
+                amount = read(STDIN_FILENO, &character, 1);
+                if (amount < 0) {
+                    free(*line);
+                    *line = NULL;
+                    return INPUT_ERROR;
+                }
+            } while (amount > 0 && character != '\n');
+            free(*line);
+            *line = NULL;
+            return INPUT_TOO_LONG;
         }
 
         if (length + 1 >= capacity) {

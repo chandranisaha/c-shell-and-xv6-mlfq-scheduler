@@ -53,10 +53,6 @@ int token_list_append_operator(TokenList *tokens, TokenType type)
 
 int token_list_append_word(TokenList *tokens, const char *value, size_t length)
 {
-    if (token_list_grow(tokens) != 0) {
-        return -1;
-    }
-
     char *copy = malloc(length + 1);
     if (copy == NULL) {
         return -1;
@@ -65,6 +61,11 @@ int token_list_append_word(TokenList *tokens, const char *value, size_t length)
         memcpy(copy, value, length);
     }
     copy[length] = '\0';
+
+    if (token_list_grow(tokens) != 0) {
+        free(copy);
+        return -1;
+    }
 
     tokens->items[tokens->count] = (Token){.type = TOKEN_WORD, .value = copy};
     tokens->count++;

@@ -13,13 +13,13 @@ int main(void)
 {
     ShellState state;
     if (shell_state_init(&state) != 0) {
-        fprintf(stderr, "cshell: failed to initialize shell state\n");
+        printf("cshell: failed to initialize shell state\n");
         return 1;
     }
 
     for (;;) {
         if (prompt_print(&state) != 0) {
-            fprintf(stderr, "cshell: failed to print prompt\n");
+            printf("cshell: failed to print prompt\n");
             return 1;
         }
 
@@ -31,9 +31,13 @@ int main(void)
             return 0;
         }
         if (result == INPUT_ERROR) {
-            fprintf(stderr, "cshell: failed to read input\n");
+            printf("cshell: failed to read input\n");
             shell_state_destroy(&state);
             return 1;
+        }
+        if (result == INPUT_TOO_LONG) {
+            printf("cshell: invalid syntax\n");
+            continue;
         }
 
         CommandLine command_line;
@@ -43,13 +47,13 @@ int main(void)
 
         if (lex_result == LEXER_MEMORY_ERROR) {
             command_line_destroy(&command_line);
-            fprintf(stderr, "cshell: memory allocation failed\n");
+            printf("cshell: memory allocation failed\n");
             shell_state_destroy(&state);
             return 1;
         }
         if (lex_result == LEXER_INVALID_SYNTAX ||
             !parser_validate(&command_line)) {
-            fprintf(stderr, "cshell: invalid syntax\n");
+            printf("cshell: invalid syntax\n");
         } else {
             (void)execute_part_c(&command_line, &state);
         }

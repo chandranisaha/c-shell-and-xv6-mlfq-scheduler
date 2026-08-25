@@ -4,7 +4,8 @@
 typedef enum {
     INPUT_LINE,
     INPUT_EOF,
-    INPUT_ERROR
+    INPUT_ERROR,
+    INPUT_TOO_LONG
 } InputResult;
 
 /* Allocates one input line. The caller owns *line after INPUT_LINE. */

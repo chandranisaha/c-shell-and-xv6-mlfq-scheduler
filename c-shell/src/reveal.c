@@ -41,9 +41,7 @@ static int collect_entries(const char *directory, int show_hidden,
     size_t capacity = 0;
     struct dirent *entry;
     while ((entry = readdir(handle)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0 ||
-            (!show_hidden && entry->d_name[0] == '.')) {
+        if (!show_hidden && entry->d_name[0] == '.') {
             continue;
         }
 
@@ -105,7 +103,9 @@ static int reveal_directory(const char *directory, const char *display_prefix,
         printf("%s%s%s\n", display_prefix, entry->name,
                entry->is_directory ? "/" : "");
 
-        if (recursive && entry->is_directory) {
+        if (recursive && entry->is_directory &&
+            strcmp(entry->name, ".") != 0 &&
+            strcmp(entry->name, "..") != 0) {
             char child_path[PATH_MAX * 2];
             char child_prefix[PATH_MAX * 2];
             int path_written = snprintf(child_path, sizeof(child_path), "%s/%s",
@@ -154,14 +154,14 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
                 } else if (argument[flag] == 't') {
                     recursive = 1;
                 } else {
-                    fprintf(stderr, "reveal: invalid syntax\n");
+                    printf("reveal: invalid syntax\n");
                     return 0;
                 }
             }
         } else {
             positional_count++;
             if (positional_count > 1) {
-                fprintf(stderr, "reveal: invalid syntax\n");
+                printf("reveal: invalid syntax\n");
                 return 0;
             }
             target = argument;
@@ -171,12 +171,12 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
     char directory[PATH_MAX];
     if (resolve_path(state, target, directory, sizeof(directory)) !=
         PATH_RESOLVE_SUCCESS) {
-        fprintf(stderr, "reveal: no such directory\n");
+        printf("reveal: no such directory\n");
         return 0;
     }
 
     if (reveal_directory(directory, "", show_hidden, recursive) != 0) {
-        fprintf(stderr, "reveal: no such directory\n");
+        printf("reveal: no such directory\n");
     }
     return 0;
 }
