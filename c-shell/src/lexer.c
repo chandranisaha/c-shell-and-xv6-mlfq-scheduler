@@ -55,8 +55,7 @@ static LexerResult scan_word(const char *line, size_t *position,
         }
 
         if (is_unprintable_nonspace(character)) {
-            free(value);
-            return LEXER_INVALID_SYNTAX;
+            break;
         }
 
         word_started = 1;
@@ -153,6 +152,10 @@ LexerResult lexer_tokenize(const char *line, TokenList *tokens)
     while (line[position] != '\0') {
         char character = line[position];
         if (is_space(character)) {
+            position++;
+            continue;
+        }
+        if (is_unprintable_nonspace(character)) {
             position++;
             continue;
         }

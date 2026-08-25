@@ -97,7 +97,7 @@ static int locate_one(const char *name)
     }
 
     if (found == 0) {
-        fprintf(stderr, "locate: command not found (%s)\n", name);
+        printf("locate: command not found (%s)\n", name);
     }
 
     return 0;
@@ -113,7 +113,7 @@ int locate_execute(const ShellState *state, const TokenList *tokens)
     }
 
     if (tokens->count == 1) {
-        fprintf(stderr, "locate: invalid syntax\n");
+        printf("locate: invalid syntax\n");
         return 0;
     }
 
