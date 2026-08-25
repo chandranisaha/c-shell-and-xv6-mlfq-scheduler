@@ -15,6 +15,12 @@ static int is_frecency_query(const char *argument)
 
 static int change_directory(ShellState *state, const char *argument)
 {
+    if (strcmp(argument, ".") == 0 ||
+        (strcmp(argument, "-") == 0 &&
+         state->previous_directory[0] == '\0')) {
+        return 0;
+    }
+
     char current_directory[PATH_MAX];
     if (getcwd(current_directory, sizeof(current_directory)) == NULL) {
         fprintf(stderr, "hop: no such directory\n");
@@ -37,6 +43,10 @@ static int change_directory(ShellState *state, const char *argument)
     if (status != PATH_RESOLVE_SUCCESS || chdir(target) != 0) {
         fprintf(stderr, "hop: no such directory\n");
         return -1;
+    }
+
+    if (strcmp(current_directory, target) == 0) {
+        return 0;
     }
 
     int written = snprintf(state->previous_directory,

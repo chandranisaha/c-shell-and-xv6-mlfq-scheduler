@@ -13,12 +13,6 @@
 
 static int absolute_path(const char *path, char *out_path, size_t out_size)
 {
-#ifdef _WIN32
-    if (_fullpath(out_path, path, out_size) == NULL) {
-        return -1;
-    }
-    return 0;
-#else
     if (path[0] == '/') {
         int written = snprintf(out_path, out_size, "%s", path);
         return written < 0 || (size_t)written >= out_size ? -1 : 0;
@@ -31,7 +25,6 @@ static int absolute_path(const char *path, char *out_path, size_t out_size)
     int written = snprintf(out_path, out_size, "%s/%s", current_directory,
                            path);
     return written < 0 || (size_t)written >= out_size ? -1 : 0;
-#endif
 }
 
 static int is_executable_file(const char *path)

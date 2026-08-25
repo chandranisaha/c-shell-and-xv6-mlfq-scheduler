@@ -1,8 +1,6 @@
 #include "shell.h"
 
-#ifndef _WIN32
 #include <pwd.h>
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,18 +8,11 @@
 
 static int copy_username(char *destination, size_t destination_size)
 {
-#ifdef _WIN32
-    const char *username = getenv("USERNAME");
-    if (username == NULL) {
-        return -1;
-    }
-#else
     struct passwd *user = getpwuid(geteuid());
     if (user == NULL || user->pw_name == NULL) {
         return -1;
     }
     const char *username = user->pw_name;
-#endif
 
     int written = snprintf(destination, destination_size, "%s", username);
     return written < 0 || (size_t)written >= destination_size ? -1 : 0;
@@ -42,17 +33,9 @@ int shell_state_init(ShellState *state)
         return -1;
     }
 
-#ifdef _WIN32
-    const char *hostname = getenv("COMPUTERNAME");
-    if (hostname == NULL ||
-        snprintf(state->hostname, sizeof(state->hostname), "%s", hostname) < 0) {
-        return -1;
-    }
-#else
     if (gethostname(state->hostname, sizeof(state->hostname)) != 0) {
         return -1;
     }
-#endif
     state->hostname[sizeof(state->hostname) - 1] = '\0';
 
     if (frecency_init(&state->frecency, state->home_directory) != 0) {

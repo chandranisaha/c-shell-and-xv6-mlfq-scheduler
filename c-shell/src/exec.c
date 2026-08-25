@@ -6,18 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#ifdef _WIN32
-extern pid_t waitpid(pid_t process_id, int *status, int options);
-#else
 #include <sys/wait.h>
-#endif
 #include <unistd.h>
 
-#ifdef _WIN32
-extern pid_t fork(void);
-#else
 extern char **environ;
-#endif
 
 static const char *display_name(const char *name)
 {

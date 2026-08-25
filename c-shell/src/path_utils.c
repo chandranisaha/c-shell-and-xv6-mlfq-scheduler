@@ -11,17 +11,10 @@ static PathResolveStatus canonicalize_directory(const char *path,
                                                 char *out_path,
                                                 size_t out_size)
 {
-#ifdef _WIN32
-    char resolved[PATH_MAX];
-    if (_fullpath(resolved, path, sizeof(resolved)) == NULL) {
-        return PATH_RESOLVE_NOT_FOUND;
-    }
-#else
     char resolved[PATH_MAX];
     if (realpath(path, resolved) == NULL) {
         return PATH_RESOLVE_NOT_FOUND;
     }
-#endif
 
     struct stat metadata;
     int is_directory = stat(resolved, &metadata) == 0 &&
@@ -58,8 +51,12 @@ PathResolveStatus resolve_path(const ShellState *state, const char *argument,
 
     if (strncmp(argument, "~/", 2) == 0) {
         char combined[PATH_MAX * 2];
-        int written = snprintf(combined, sizeof(combined), "%s/%s",
-                               state->home_directory, argument + 2);
+        const char *separator = state->home_directory[
+                                    strlen(state->home_directory) - 1] == '/'
+                                    ? ""
+                                    : "/";
+        int written = snprintf(combined, sizeof(combined), "%s%s%s",
+                               state->home_directory, separator, argument + 2);
         if (written < 0 || (size_t)written >= sizeof(combined)) {
             return PATH_RESOLVE_INVALID;
         }

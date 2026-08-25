@@ -51,10 +51,12 @@ static void load_database(FrecencyDB *database)
 
     char line[PATH_MAX + 128];
     while (fgets(line, sizeof(line), file) != NULL) {
-        char *path = strtok(line, "\t\n");
-        char *score_text = strtok(NULL, "\t\n");
-        char *time_text = strtok(NULL, "\t\n");
+        char *save_pointer = NULL;
+        char *path = strtok_r(line, "\t\n", &save_pointer);
+        char *score_text = strtok_r(NULL, "\t\n", &save_pointer);
+        char *time_text = strtok_r(NULL, "\t\n", &save_pointer);
         if (path == NULL || score_text == NULL || time_text == NULL ||
+            path[0] == '\0' || strlen(path) >= PATH_MAX ||
             database_grow(database) != 0) {
             continue;
         }
@@ -82,13 +84,9 @@ int frecency_init(FrecencyDB *database, const char *home_directory)
     database->count = 0;
     database->capacity = 0;
 
-    const char *home = getenv("HOME");
-    if (home == NULL || home[0] == '\0') {
-        home = home_directory;
-    }
     int written = snprintf(database->storage_path,
                            sizeof(database->storage_path),
-                           "%s/.cshell_frecency", home);
+                           "%s/.cshell_frecency", home_directory);
     if (written < 0 || (size_t)written >= sizeof(database->storage_path)) {
         return -1;
     }

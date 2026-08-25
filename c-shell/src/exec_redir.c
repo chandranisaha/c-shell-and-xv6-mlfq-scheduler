@@ -5,17 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#ifdef _WIN32
-extern pid_t waitpid(pid_t process_id, int *status, int options);
-#else
 #include <sys/wait.h>
-#endif
 #include <unistd.h>
-
-#ifdef _WIN32
-extern int pipe(int descriptors[2]);
-extern pid_t fork(void);
-#endif
 
 static void input_redirection_reset(InputRedirection *input)
 {

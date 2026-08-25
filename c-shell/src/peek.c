@@ -217,7 +217,6 @@ static int print_reverse_regular(int fd, off_t size, int numbered)
     }
 
     off_t end = size;
-    int terminated = 0;
     if (end > 0) {
         char last;
         if (lseek(fd, end - 1, SEEK_SET) == (off_t)-1 ||
@@ -226,7 +225,6 @@ static int print_reverse_regular(int fd, off_t size, int numbered)
         }
         if (last == '\n') {
             end--;
-            terminated = 1;
         }
     }
 
@@ -255,11 +253,10 @@ static int print_reverse_regular(int fd, off_t size, int numbered)
         if (print_range(fd, start, end) != 0) {
             return -1;
         }
-        if (terminated && write_all(STDOUT_FILENO, "\n", 1) != 0) {
+        if (write_all(STDOUT_FILENO, "\n", 1) != 0) {
             return -1;
         }
         end = found == 1 ? newline : 0;
-        terminated = found == 1;
     }
     return 0;
 }
