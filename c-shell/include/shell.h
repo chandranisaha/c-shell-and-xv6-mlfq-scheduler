@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "frecency.h"
+#include "jobs.h"
 
 #ifndef LOGIN_NAME_MAX
 #define LOGIN_NAME_MAX 256
@@ -20,6 +21,11 @@ typedef struct {
     char username[LOGIN_NAME_MAX];
     char hostname[HOST_NAME_MAX];
     FrecencyDB frecency;
+    Job *jobs;
+    int next_job_number;
+    pid_t shell_pgid;
+    pid_t foreground_pgid;
+    int terminal_fd;
 } ShellState;
 
 int shell_state_init(ShellState *state);

@@ -28,6 +28,11 @@ int shell_state_init(ShellState *state)
         return -1;
     }
     state->previous_directory[0] = '\0';
+    state->jobs = NULL;
+    state->next_job_number = 1;
+    state->shell_pgid = getpgrp();
+    state->foreground_pgid = 0;
+    state->terminal_fd = STDIN_FILENO;
 
     if (copy_username(state->username, sizeof(state->username)) != 0) {
         return -1;
