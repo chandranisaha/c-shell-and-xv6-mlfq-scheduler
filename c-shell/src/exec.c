@@ -3,6 +3,7 @@
 #include "builtin.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +131,14 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
 
         if (setpgid(0, process_group) != 0) {
             _exit(1);
+        }
+
+        if (background && index == 0 && inputs[index].input_count == 0) {
+            int null_input = open("/dev/null", O_RDONLY);
+            if (null_input < 0 || dup2(null_input, STDIN_FILENO) < 0) {
+                _exit(1);
+            }
+            close(null_input);
         }
 
         if (index > 0 && dup2(pipe_fds[index - 1][0], STDIN_FILENO) < 0) {
