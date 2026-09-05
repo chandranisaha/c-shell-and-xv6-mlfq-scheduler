@@ -1,5 +1,6 @@
 #include "input.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -33,6 +34,11 @@ InputResult input_read_line(char **line)
         }
 
         if (amount < 0) {
+            if (errno == EINTR) {
+                free(*line);
+                *line = NULL;
+                return INPUT_INTERRUPTED;
+            }
             free(*line);
             *line = NULL;
             return INPUT_ERROR;

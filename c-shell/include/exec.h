@@ -59,5 +59,7 @@ void output_redirection_close_parent(OutputRedirection *output);
 int output_redirection_wait_writer(int writer_pid);
 ExecResult execute_part_c(const CommandLine *command_line, ShellState *state);
 ExecResult execute_part_d(const CommandLine *command_line, ShellState *state);
+ExecResult execute_part_d_background(const CommandLine *command_line,
+                                     ShellState *state);
 
 #endif

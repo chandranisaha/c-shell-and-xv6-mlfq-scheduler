@@ -3,6 +3,7 @@
 #include "builtin.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,7 +49,7 @@ static void close_pipeline_fds(int pipe_fds[][2], size_t pipe_count)
 }
 
 static ExecResult execute_pipeline(const Pipeline *pipeline,
-                                   ShellState *state)
+                                   ShellState *state, int background)
 {
     size_t command_count = pipeline->count;
     size_t pipe_count = command_count - 1;
@@ -176,7 +177,9 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         _exit(127);
     }
 
-    state->foreground_pgid = process_group;
+    if (!background) {
+        state->foreground_pgid = process_group;
+    }
     close_pipeline_fds(pipe_fds, pipe_count);
     for (size_t index = 0; index < command_count; index++) {
         if (inputs[index].input_count != 0) {
@@ -186,6 +189,64 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
             output_writers[index] =
                 output_redirection_start_writer(&outputs[index]);
         }
+    }
+
+    if (background) {
+        char command_line[4096] = {0};
+        size_t used = 0;
+        for (size_t index = 0; index < command_count; index++) {
+            const FlatCmd *command = &pipeline->commands[index];
+            for (size_t arg = 0; arg < command->argc; arg++) {
+                int written = snprintf(command_line + used,
+                                       sizeof(command_line) - used, "%s%s",
+                                       used == 0 ? "" : " ",
+                                       command->argv[arg]);
+                if (written < 0 || (size_t)written >= sizeof(command_line) - used) {
+                    used = sizeof(command_line) - 1;
+                    break;
+                }
+                used += (size_t)written;
+            }
+            if (index + 1 < command_count &&
+                used + 3 < sizeof(command_line)) {
+                command_line[used++] = ' ';
+                command_line[used++] = '|';
+                command_line[used++] = ' ';
+                command_line[used] = '\0';
+            }
+        }
+
+        Job *job = job_create(state->next_job_number, process_group,
+                              command_line);
+        if (job == NULL) {
+            (void)kill(-process_group, SIGTERM);
+            for (size_t index = 0; index < command_count; index++) {
+                (void)waitpid(children[index], NULL, 0);
+                free(resolved_paths[index]);
+            }
+            return EXEC_ERROR;
+        }
+        for (size_t index = 0; index < command_count; index++) {
+            if (job_add_process(job, children[index],
+                                pipeline->commands[index].argv[0]) != 0) {
+                job_destroy(job);
+                (void)kill(-process_group, SIGTERM);
+                for (size_t cleanup = 0; cleanup < command_count; cleanup++) {
+                    (void)waitpid(children[cleanup], NULL, 0);
+                    free(resolved_paths[cleanup]);
+                }
+                return EXEC_ERROR;
+            }
+        }
+        job_add(state, job);
+        printf("[%d] %ld\n", state->next_job_number,
+               (long)children[0]);
+        fflush(stdout);
+        state->next_job_number++;
+        for (size_t index = 0; index < command_count; index++) {
+            free(resolved_paths[index]);
+        }
+        return EXEC_HANDLED;
     }
 
     ExecResult pipeline_result = EXEC_HANDLED;
@@ -223,7 +284,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         if (exec_parse_pipeline(&command_line->tokens, &pipeline) != 0) {
             return EXEC_ERROR;
         }
-        return execute_pipeline(&pipeline, state);
+        return execute_pipeline(&pipeline, state, 0);
     }
     if (parse_result != 0 || command.argc == 0) {
         return EXEC_NOT_HANDLED;
@@ -356,4 +417,17 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
     }
     state->foreground_pgid = 0;
     return EXEC_HANDLED;
+}
+
+ExecResult execute_part_d_background(const CommandLine *command_line,
+                                     ShellState *state)
+{
+    if (command_line == NULL || state == NULL) {
+        return EXEC_ERROR;
+    }
+    Pipeline pipeline;
+    if (exec_parse_pipeline(&command_line->tokens, &pipeline) != 0) {
+        return EXEC_ERROR;
+    }
+    return execute_pipeline(&pipeline, state, 1);
 }

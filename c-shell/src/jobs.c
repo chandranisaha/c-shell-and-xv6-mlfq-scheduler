@@ -4,6 +4,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 Job *job_create(int job_number, pid_t pgid, const char *command_line)
 {
@@ -140,4 +143,64 @@ bool job_is_finished(const Job *job)
         }
     }
     return true;
+}
+
+void job_update_process(Job *job, pid_t pid, int status)
+{
+    if (job == NULL) {
+        return;
+    }
+    for (JobProcess *process = job->processes; process != NULL;
+         process = process->next) {
+        if (process->pid == pid) {
+            process->status = status;
+            process->exited = WIFEXITED(status) || WIFSIGNALED(status);
+            process->stopped = WIFSTOPPED(status);
+            if (process->stopped) {
+                job->state = JOB_STOPPED;
+            }
+            return;
+        }
+    }
+}
+
+static void remove_job(ShellState *state, Job *target)
+{
+    Job **link = &state->jobs;
+    while (*link != NULL && *link != target) {
+        link = &(*link)->next;
+    }
+    if (*link == target) {
+        *link = target->next;
+        job_destroy(target);
+    }
+}
+
+void jobs_reap_background(ShellState *state)
+{
+    if (state == NULL) {
+        return;
+    }
+    int status;
+    pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        Job *job = job_find_by_pid(state, pid);
+        if (job == NULL) {
+            continue;
+        }
+        job_update_process(job, pid, status);
+        if (!job_is_finished(job)) {
+            continue;
+        }
+
+        JobProcess *first = job->processes;
+        if (first != NULL && WIFEXITED(first->status)) {
+            printf("%s with pid %ld exited normally\n", job->command_line,
+                   (long)first->pid);
+        } else {
+            printf("%s with pid %ld exited abnormally\n", job->command_line,
+                   (long)(first == NULL ? job->pgid : first->pid));
+        }
+        remove_job(state, job);
+    }
 }

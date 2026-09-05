@@ -2,10 +2,6 @@
 
 #include <stddef.h>
 
-/*
- * D1 owns only semicolon sequencing. Ampersand remains a Part C boundary
- * until D2 adds background-job launch and tracking.
- */
 ExecResult execute_part_d(const CommandLine *command_line, ShellState *state)
 {
     if (command_line == NULL || state == NULL) {
@@ -35,13 +31,18 @@ ExecResult execute_part_d(const CommandLine *command_line, ShellState *state)
                 .capacity = position - start,
             },
         };
-        ExecResult result = execute_part_c(&segment, state);
+        ExecResult result;
+        if (position < tokens->count &&
+            tokens->items[position].type == TOKEN_AMP) {
+            result = execute_part_d_background(&segment, state);
+        } else {
+            result = execute_part_c(&segment, state);
+        }
         if (result != EXEC_HANDLED) {
             return result;
         }
 
-        if (position == tokens->count ||
-            tokens->items[position].type == TOKEN_AMP) {
+        if (position == tokens->count) {
             return EXEC_HANDLED;
         }
 

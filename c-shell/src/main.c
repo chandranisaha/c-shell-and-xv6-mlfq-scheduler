@@ -5,6 +5,7 @@
 #include "parser.h"
 #include "prompt.h"
 #include "shell.h"
+#include "signals.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,8 +17,13 @@ int main(void)
         printf("cshell: failed to initialize shell state\n");
         return 1;
     }
+    signals_install();
 
     for (;;) {
+        if (signals_pending()) {
+            jobs_reap_background(&state);
+            signals_clear();
+        }
         if (prompt_print(&state) != 0) {
             printf("cshell: failed to print prompt\n");
             return 1;
@@ -34,6 +40,11 @@ int main(void)
             printf("cshell: failed to read input\n");
             shell_state_destroy(&state);
             return 1;
+        }
+        if (result == INPUT_INTERRUPTED) {
+            jobs_reap_background(&state);
+            signals_clear();
+            continue;
         }
         if (result == INPUT_TOO_LONG) {
             printf("cshell: invalid syntax\n");
