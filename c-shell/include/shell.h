@@ -15,7 +15,7 @@
 #define HOST_NAME_MAX 256
 #endif
 
-typedef struct {
+struct ShellState {
     char home_directory[PATH_MAX];
     char previous_directory[PATH_MAX];
     char username[LOGIN_NAME_MAX];
@@ -26,7 +26,7 @@ typedef struct {
     pid_t shell_pgid;
     pid_t foreground_pgid;
     int terminal_fd;
-} ShellState;
+};
 
 int shell_state_init(ShellState *state);
 void shell_state_destroy(ShellState *state);

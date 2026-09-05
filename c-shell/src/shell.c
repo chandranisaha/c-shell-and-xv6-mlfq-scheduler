@@ -53,6 +53,12 @@ int shell_state_init(ShellState *state)
 void shell_state_destroy(ShellState *state)
 {
     if (state != NULL) {
+        Job *job = state->jobs;
+        while (job != NULL) {
+            Job *next = job->next;
+            job_destroy(job);
+            job = next;
+        }
         frecency_destroy(&state->frecency);
     }
 }
