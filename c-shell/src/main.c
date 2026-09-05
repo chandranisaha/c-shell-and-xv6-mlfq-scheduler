@@ -55,7 +55,7 @@ int main(void)
             !parser_validate(&command_line)) {
             printf("cshell: invalid syntax\n");
         } else {
-            (void)execute_part_c(&command_line, &state);
+            (void)execute_part_d(&command_line, &state);
         }
 
         command_line_destroy(&command_line);

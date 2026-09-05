@@ -175,8 +175,14 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
     }
 
+    ExecResult pipeline_result = EXEC_HANDLED;
     for (size_t index = 0; index < command_count; index++) {
-        (void)waitpid(children[index], NULL, 0);
+        int status;
+        if (waitpid(children[index], &status, 0) < 0) {
+            pipeline_result = EXEC_ERROR;
+        } else if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+            pipeline_result = EXEC_ERROR;
+        }
     }
     for (size_t index = 0; index < command_count; index++) {
         if (input_writers[index] >= 0) {
@@ -187,7 +193,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
         free(resolved_paths[index]);
     }
-    return EXEC_HANDLED;
+    return pipeline_result;
 }
 
 ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
@@ -251,7 +257,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         output_redirection_close_parent(&output);
         fprintf(stderr, "cshell: command not found (%s)\n",
                 display_name(command.argv[0]));
-        return EXEC_HANDLED;
+        return EXEC_ERROR;
     }
 
     char *argv[MAX_ARGS + 1];
