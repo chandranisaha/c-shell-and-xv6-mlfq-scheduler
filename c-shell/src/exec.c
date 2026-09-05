@@ -2,6 +2,7 @@
 
 #include "builtin.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -98,6 +99,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     }
 
     size_t launched = 0;
+    pid_t process_group = 0;
     for (size_t index = 0; index < command_count; index++) {
         pid_t child = fork();
         if (child < 0) {
@@ -116,7 +118,17 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         children[index] = child;
         launched++;
         if (child != 0) {
+            if (process_group == 0) {
+                process_group = child;
+            }
+            if (setpgid(child, process_group) != 0 && errno != EACCES) {
+                fprintf(stderr, "cshell: unable to create process group\n");
+            }
             continue;
+        }
+
+        if (setpgid(0, process_group) != 0) {
+            _exit(1);
         }
 
         if (index > 0 && dup2(pipe_fds[index - 1][0], STDIN_FILENO) < 0) {
@@ -164,6 +176,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         _exit(127);
     }
 
+    state->foreground_pgid = process_group;
     close_pipeline_fds(pipe_fds, pipe_count);
     for (size_t index = 0; index < command_count; index++) {
         if (inputs[index].input_count != 0) {
@@ -193,6 +206,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
         free(resolved_paths[index]);
     }
+    state->foreground_pgid = 0;
     return pipeline_result;
 }
 
@@ -273,6 +287,9 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         return EXEC_ERROR;
     }
     if (child == 0) {
+        if (setpgid(0, 0) != 0) {
+            _exit(1);
+        }
         if (input_redirection_connect_child(&input) != 0) {
             _exit(1);
         }
@@ -289,6 +306,11 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
                 display_name(command.argv[0]));
         _exit(127);
     }
+
+    if (setpgid(child, child) != 0 && errno != EACCES) {
+        fprintf(stderr, "cshell: unable to create process group\n");
+    }
+    state->foreground_pgid = child;
 
     free(resolved_path);
     int writer = -1;
@@ -332,5 +354,6 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         output_redirection_wait_writer(output_writer) != 0) {
         return EXEC_ERROR;
     }
+    state->foreground_pgid = 0;
     return EXEC_HANDLED;
 }
