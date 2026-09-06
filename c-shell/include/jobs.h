@@ -40,6 +40,6 @@ Job *job_find_by_pgid(const ShellState *state, pid_t pgid);
 int job_add_process(Job *job, pid_t pid, const char *command_name);
 bool job_is_finished(const Job *job);
 void job_update_process(Job *job, pid_t pid, int status);
-void jobs_reap_background(ShellState *state);
+int jobs_reap_background(ShellState *state, int newline_before_first);
 
 #endif

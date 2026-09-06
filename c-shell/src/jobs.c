@@ -181,13 +181,14 @@ static const char *job_display_name(const char *name)
     return (name != NULL && name[0] == '%') ? name + 1 : name;
 }
 
-void jobs_reap_background(ShellState *state)
+int jobs_reap_background(ShellState *state, int newline_before_first)
 {
     if (state == NULL) {
-        return;
+        return 0;
     }
     int status;
     pid_t pid;
+    int reaped = 0;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         Job *job = job_find_by_pid(state, pid);
         if (job == NULL) {
@@ -213,6 +214,10 @@ void jobs_reap_background(ShellState *state)
                                : "command";
         long report_pid = (long)(first != NULL ? first->pid : job->pgid);
 
+        if (reaped == 0 && newline_before_first) {
+            putchar('\n');
+        }
+
         if (all_succeeded) {
             printf("%s with pid %ld exited normally\n", name, report_pid);
         } else {
@@ -220,5 +225,7 @@ void jobs_reap_background(ShellState *state)
         }
         fflush(stdout);
         remove_job(state, job);
+        reaped++;
     }
+    return reaped;
 }

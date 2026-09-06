@@ -20,7 +20,7 @@ int main(void)
     signals_install();
 
     for (;;) {
-        jobs_reap_background(&state);
+        jobs_reap_background(&state, 0);
         signals_clear();
         if (prompt_print(&state) != 0) {
             printf("cshell: failed to print prompt\n");
@@ -28,7 +28,7 @@ int main(void)
         }
 
         char *line = NULL;
-        InputResult result = input_read_line(&line);
+        InputResult result = input_read_line(&line, &state);
         if (result == INPUT_EOF) {
             putchar('\n');
             shell_state_destroy(&state);
@@ -40,8 +40,6 @@ int main(void)
             return 1;
         }
         if (result == INPUT_INTERRUPTED) {
-            jobs_reap_background(&state);
-            signals_clear();
             continue;
         }
         if (result == INPUT_TOO_LONG) {

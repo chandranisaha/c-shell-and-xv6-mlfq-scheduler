@@ -1,12 +1,16 @@
 #include "input.h"
+#include "jobs.h"
+#include "prompt.h"
+#include "signals.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 #define INPUT_MAX_LENGTH 1024
 
-InputResult input_read_line(char **line)
+InputResult input_read_line(char **line, ShellState *state)
 {
     if (line == NULL) {
         return INPUT_ERROR;
@@ -35,9 +39,21 @@ InputResult input_read_line(char **line)
 
         if (amount < 0) {
             if (errno == EINTR) {
-                free(*line);
-                *line = NULL;
-                return INPUT_INTERRUPTED;
+                if (state != NULL) {
+                    int reaped = jobs_reap_background(state, 1);
+                    signals_clear();
+                    if (reaped > 0) {
+                        if (prompt_print(state) != 0) {
+                            free(*line);
+                            *line = NULL;
+                            return INPUT_ERROR;
+                        }
+                        if (length > 0) {
+                            (void)write(STDOUT_FILENO, *line, length);
+                        }
+                    }
+                }
+                continue;
             }
             free(*line);
             *line = NULL;
