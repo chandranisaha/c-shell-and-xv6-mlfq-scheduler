@@ -176,6 +176,11 @@ static void remove_job(ShellState *state, Job *target)
     }
 }
 
+static const char *job_display_name(const char *name)
+{
+    return (name != NULL && name[0] == '%') ? name + 1 : name;
+}
+
 void jobs_reap_background(ShellState *state)
 {
     if (state == NULL) {
@@ -194,13 +199,26 @@ void jobs_reap_background(ShellState *state)
         }
 
         JobProcess *first = job->processes;
-        if (first != NULL && WIFEXITED(first->status)) {
-            printf("%s with pid %ld exited normally\n", job->command_line,
-                   (long)first->pid);
-        } else {
-            printf("%s with pid %ld exited abnormally\n", job->command_line,
-                   (long)(first == NULL ? job->pgid : first->pid));
+        bool all_succeeded = true;
+        for (JobProcess *process = job->processes; process != NULL;
+             process = process->next) {
+            if (!WIFEXITED(process->status) || WEXITSTATUS(process->status) != 0) {
+                all_succeeded = false;
+                break;
+            }
         }
+
+        const char *name = (first != NULL && first->command_name != NULL)
+                               ? job_display_name(first->command_name)
+                               : "command";
+        long report_pid = (long)(first != NULL ? first->pid : job->pgid);
+
+        if (all_succeeded) {
+            printf("%s with pid %ld exited normally\n", name, report_pid);
+        } else {
+            printf("%s with pid %ld exited abnormally\n", name, report_pid);
+        }
+        fflush(stdout);
         remove_job(state, job);
     }
 }

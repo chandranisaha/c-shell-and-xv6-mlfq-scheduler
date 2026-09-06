@@ -176,7 +176,11 @@ void input_redirection_close_parent(InputRedirection *input)
 int input_redirection_wait_writer(int writer_pid)
 {
     int status = 0;
-    return waitpid((pid_t)writer_pid, &status, 0) < 0 ? -1 : 0;
+    pid_t waited;
+    do {
+        waited = waitpid((pid_t)writer_pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited < 0 ? -1 : 0;
 }
 
 static void output_redirection_reset(OutputRedirection *output)
@@ -328,5 +332,9 @@ void output_redirection_close_parent(OutputRedirection *output)
 int output_redirection_wait_writer(int writer_pid)
 {
     int status = 0;
-    return waitpid((pid_t)writer_pid, &status, 0) < 0 ? -1 : 0;
+    pid_t waited;
+    do {
+        waited = waitpid((pid_t)writer_pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited < 0 ? -1 : 0;
 }

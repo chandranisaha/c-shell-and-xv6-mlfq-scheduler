@@ -9,6 +9,9 @@ ExecResult execute_part_d(const CommandLine *command_line, ShellState *state)
     }
 
     const TokenList *tokens = &command_line->tokens;
+    if (tokens->count == 0) {
+        return EXEC_HANDLED;
+    }
     size_t start = 0;
     size_t position = 0;
 
@@ -47,6 +50,9 @@ ExecResult execute_part_d(const CommandLine *command_line, ShellState *state)
         }
 
         start = position + 1;
+        if (start >= tokens->count) {
+            return EXEC_HANDLED;
+        }
         position = start;
     }
 

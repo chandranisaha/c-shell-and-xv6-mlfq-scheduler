@@ -20,10 +20,8 @@ int main(void)
     signals_install();
 
     for (;;) {
-        if (signals_pending()) {
-            jobs_reap_background(&state);
-            signals_clear();
-        }
+        jobs_reap_background(&state);
+        signals_clear();
         if (prompt_print(&state) != 0) {
             printf("cshell: failed to print prompt\n");
             return 1;

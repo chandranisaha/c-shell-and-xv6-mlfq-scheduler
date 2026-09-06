@@ -15,9 +15,8 @@ The shell maintains its own working-directory state, displays a custom prompt,
 supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
-Parts A and B are complete, and Part C1-C4 is implemented and tested in WSL.
-Sequential execution, background jobs, process groups, terminal control,
-later shell intrinsics, and the xv6 scheduler work are still pending.
+Parts A, B, C, and D are complete and tested in WSL.
+Terminal control, later shell intrinsics, and the xv6 scheduler work are still pending.
 
 Implemented shell features:
 
@@ -42,6 +41,11 @@ Implemented shell features:
   input/output combinations.
 - C4: multi-stage pipelines with one child per stage and failed-stage
   continuation.
+- D1: sequential execution (`command1 ; command2 ; ... ; commandN`) executed
+  in order, waiting on each stage, and halting on unresolvable commands.
+- D2: background execution (`command1 & command2 & ... & commandN &`) with
+  session-wide monotonic job numbering, child process groups, terminal isolation,
+  SIGCHLD reaping via `waitpid(WNOHANG)`, and normal/abnormal exit status reporting.
 
 ## Architecture and design choices
 
@@ -53,6 +57,7 @@ main.c
   -> input.c
   -> lexer.c -> token.c
   -> parser.c -> command.c
+  -> sequence.c
   -> builtin.c
        -> hop.c -> path_utils.c -> frecency.c
        -> reveal.c
@@ -60,6 +65,8 @@ main.c
        -> locate.c
   -> exec.c -> exec_parse.c -> exec_resolver.c
                        -> exec_redir.c
+  -> jobs.c
+  -> signals.c
 ```
 
 Important implementation decisions:

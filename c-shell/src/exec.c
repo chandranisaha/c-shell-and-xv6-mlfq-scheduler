@@ -261,7 +261,11 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     ExecResult pipeline_result = EXEC_HANDLED;
     for (size_t index = 0; index < command_count; index++) {
         int status;
-        if (waitpid(children[index], &status, 0) < 0) {
+        pid_t waited;
+        do {
+            waited = waitpid(children[index], &status, 0);
+        } while (waited < 0 && errno == EINTR);
+        if (waited < 0) {
             pipeline_result = EXEC_ERROR;
         } else if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
             pipeline_result = EXEC_ERROR;
@@ -407,7 +411,11 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         }
     }
     int status;
-    if (waitpid(child, &status, 0) < 0) {
+    pid_t waited;
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0) {
         if (writer >= 0) {
             (void)input_redirection_wait_writer(writer);
         }
