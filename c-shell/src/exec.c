@@ -1,6 +1,7 @@
 #include "exec.h"
 
 #include "builtin.h"
+#include "signals.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -48,6 +49,18 @@ static void close_pipeline_fds(int pipe_fds[][2], size_t pipe_count)
         close(pipe_fds[index][0]);
         close(pipe_fds[index][1]);
     }
+}
+
+/* Best-effort terminal handoff for E2: give/reclaim the controlling
+ * terminal so job-control signals (SIGINT/SIGTSTP) reach whichever process
+ * group is actually in the foreground. Silently does nothing when stdin
+ * isn't a controlling terminal (e.g. redirected test fixtures). */
+static void give_terminal(const ShellState *state, pid_t pgid)
+{
+    if (state == NULL || state->terminal_fd < 0) {
+        return;
+    }
+    (void)tcsetpgrp(state->terminal_fd, pgid);
 }
 
 static ExecResult execute_pipeline(const Pipeline *pipeline,
@@ -133,6 +146,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         if (setpgid(0, process_group) != 0) {
             _exit(1);
         }
+        signals_restore_terminal_defaults();
 
         if (background && index == 0 && inputs[index].input_count == 0) {
             int null_input = open("/dev/null", O_RDONLY);
@@ -189,6 +203,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
 
     if (!background) {
         state->foreground_pgid = process_group;
+        give_terminal(state, process_group);
     }
     close_pipeline_fds(pipe_fds, pipe_count);
     for (size_t index = 0; index < command_count; index++) {
@@ -281,6 +296,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
         free(resolved_paths[index]);
     }
+    give_terminal(state, state->shell_pgid);
     state->foreground_pgid = 0;
     return pipeline_result;
 }
@@ -365,6 +381,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         if (setpgid(0, 0) != 0) {
             _exit(1);
         }
+        signals_restore_terminal_defaults();
         if (input_redirection_connect_child(&input) != 0) {
             _exit(1);
         }
@@ -386,6 +403,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         fprintf(stderr, "cshell: unable to create process group\n");
     }
     state->foreground_pgid = child;
+    give_terminal(state, child);
 
     free(resolved_path);
     int writer = -1;
@@ -423,16 +441,23 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         if (output_writer >= 0) {
             (void)output_redirection_wait_writer(output_writer);
         }
+        give_terminal(state, state->shell_pgid);
+        state->foreground_pgid = 0;
         fprintf(stderr, "cshell: wait failed\n");
         return EXEC_ERROR;
     }
     if (writer >= 0 && input_redirection_wait_writer(writer) != 0) {
+        give_terminal(state, state->shell_pgid);
+        state->foreground_pgid = 0;
         return EXEC_ERROR;
     }
     if (output_writer >= 0 &&
         output_redirection_wait_writer(output_writer) != 0) {
+        give_terminal(state, state->shell_pgid);
+        state->foreground_pgid = 0;
         return EXEC_ERROR;
     }
+    give_terminal(state, state->shell_pgid);
     state->foreground_pgid = 0;
     return EXEC_HANDLED;
 }
