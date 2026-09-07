@@ -2,6 +2,7 @@
 
 #include "shell.h"
 
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -228,4 +229,27 @@ int jobs_reap_background(ShellState *state, int newline_before_first)
         reaped++;
     }
     return reaped;
+}
+
+bool jobs_has_stopped(const ShellState *state)
+{
+    if (state == NULL) {
+        return false;
+    }
+    for (const Job *job = state->jobs; job != NULL; job = job->next) {
+        if (job->state == JOB_STOPPED) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void jobs_hangup_all(const ShellState *state)
+{
+    if (state == NULL) {
+        return;
+    }
+    for (const Job *job = state->jobs; job != NULL; job = job->next) {
+        (void)kill(-job->pgid, SIGHUP);
+    }
 }

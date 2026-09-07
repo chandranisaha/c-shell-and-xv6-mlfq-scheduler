@@ -41,5 +41,7 @@ int job_add_process(Job *job, pid_t pid, const char *command_name);
 bool job_is_finished(const Job *job);
 void job_update_process(Job *job, pid_t pid, int status);
 int jobs_reap_background(ShellState *state, int newline_before_first);
+bool jobs_has_stopped(const ShellState *state);
+void jobs_hangup_all(const ShellState *state);
 
 #endif
