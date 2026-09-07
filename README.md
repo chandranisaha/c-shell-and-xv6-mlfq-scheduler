@@ -15,8 +15,9 @@ The shell maintains its own working-directory state, displays a custom prompt,
 supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
-Parts A, B, C, and D are complete and tested in WSL.
-Terminal control, later shell intrinsics, and the xv6 scheduler work are still pending.
+Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`) is
+complete. Terminal control (E2), `resume`/`ping` (E3/E4), and the xv6
+scheduler work are still pending.
 
 Implemented shell features:
 
@@ -53,6 +54,10 @@ Implemented shell features:
   prompt, without disturbing text the user has already typed on the current
   line (see `DESIGN_LOG.md` entry d2-010 for the interactive-echo bug this
   replaced).
+- E1: `activities` lists every tracked process group, oldest first, one
+  `[job_number] pgid <pgid>` line followed by an indented `<pid> <name>
+  <state>` line per still-running process, reaping already-exited processes
+  before printing so finished ones never show up.
 
 ## Architecture and design choices
 
@@ -70,6 +75,7 @@ main.c
        -> reveal.c
        -> peek.c
        -> locate.c
+       -> activities.c -> jobs.c
   -> exec.c -> exec_parse.c -> exec_resolver.c
                        -> exec_redir.c
   -> jobs.c
@@ -108,6 +114,13 @@ Important implementation decisions:
    erases or rewrites anything already echoed by the kernel for the
    in-progress line — it only adds a leading newline and prints the
    notification plus a fresh prompt underneath.
+10. `activities` is dispatched through the same `builtin_execute`/
+    `is_builtin_name` path as `hop`/`reveal`/`peek`/`locate`, so it also works
+    combined with redirection or inside a pipeline (which run it in a forked
+    child — harmless here since it only reads job state, never mutates it).
+    It reuses `jobs_reap_background` to drop already-exited processes before
+    printing, and relies on the job list already being maintained in launch
+    order (`job_add` appends at the tail) to print oldest group first.
 
 
 ## Build and run in WSL

@@ -1,6 +1,7 @@
 #ifndef CSHELL_BUILTIN_H
 #define CSHELL_BUILTIN_H
 
+#include "activities.h"
 #include "command.h"
 #include "peek.h"
 #include "reveal.h"
