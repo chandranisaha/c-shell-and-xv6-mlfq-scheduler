@@ -40,16 +40,26 @@ InputResult input_read_line(char **line, ShellState *state)
         if (amount < 0) {
             if (errno == EINTR) {
                 if (state != NULL) {
-                    int reaped = jobs_reap_background(state, 1);
+                    int interactive = isatty(STDIN_FILENO);
+                    /* The terminal is in canonical mode: whatever the user
+                     * has typed so far on the current line is only echoed
+                     * by the kernel tty driver, not yet delivered to us (no
+                     * newline yet), so `length` is still 0 here and we have
+                     * no way to know what is on screen. Do NOT erase the
+                     * current line - doing so would wipe out those
+                     * kernel-echoed, not-yet-delivered characters and
+                     * desync the display from the pending input. Instead,
+                     * simply move past the current line with a newline so
+                     * the notification (and any already-typed text above
+                     * it) stay intact, matching the assignment's own
+                     * example transcript. */
+                    int reaped = jobs_reap_background(state, interactive);
                     signals_clear();
-                    if (reaped > 0) {
+                    if (reaped > 0 && interactive) {
                         if (prompt_print(state) != 0) {
                             free(*line);
                             *line = NULL;
                             return INPUT_ERROR;
-                        }
-                        if (length > 0) {
-                            (void)write(STDOUT_FILENO, *line, length);
                         }
                     }
                 }

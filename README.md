@@ -46,6 +46,13 @@ Implemented shell features:
 - D2: background execution (`command1 & command2 & ... & commandN &`) with
   session-wide monotonic job numbering, child process groups, terminal isolation,
   SIGCHLD reaping via `waitpid(WNOHANG)`, and normal/abnormal exit status reporting.
+  A command trailing the last `&` with no `&` of its own runs in the
+  foreground, per the A3 grammar (`BG -> WORD ARG`, no operator required) and
+  the assignment's own `sleep 1 & sleep 2 & cat` example. Background
+  completions are reported as soon as they happen, including mid-read at the
+  prompt, without disturbing text the user has already typed on the current
+  line (see `DESIGN_LOG.md` entry d2-010 for the interactive-echo bug this
+  replaced).
 
 ## Architecture and design choices
 
@@ -90,6 +97,17 @@ Important implementation decisions:
    and waits for every stage and helper process.
 8. The implementation is compiled with the assignment's C23/POSIX feature
    definitions and warning-as-error flags.
+9. `signals.c` installs a minimal `SIGCHLD` handler that only sets a
+   `volatile sig_atomic_t` flag (no `printf`/`malloc` inside the handler).
+   `jobs.c` does the real reaping (`waitpid(-1, ..., WNOHANG)` in a loop)
+   from normal shell code: once at the top of the main loop before each
+   prompt, and from `input_read_line`'s `EINTR` branch so a background job
+   finishing while the shell is blocked reading the next line is reported
+   immediately rather than only after the next command runs. The terminal is
+   left in canonical mode (no `tcsetattr`), so that `EINTR` handler never
+   erases or rewrites anything already echoed by the kernel for the
+   in-progress line — it only adds a leading newline and prints the
+   notification plus a fresh prompt underneath.
 
 
 ## Build and run in WSL
