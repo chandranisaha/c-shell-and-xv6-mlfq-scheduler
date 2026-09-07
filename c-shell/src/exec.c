@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,39 @@ static void give_terminal(const ShellState *state, pid_t pgid)
         return;
     }
     (void)tcsetpgrp(state->terminal_fd, pgid);
+}
+
+static void append_argv_display(char *buffer, size_t buffer_size, size_t *used,
+                                char *const argv[], size_t argc)
+{
+    for (size_t arg = 0; arg < argc; arg++) {
+        bool need_space = *used > 0 && buffer[*used - 1] != ' ';
+        int written = snprintf(buffer + *used, buffer_size - *used, "%s%s",
+                               need_space ? " " : "", argv[arg]);
+        if (written < 0 || (size_t)written >= buffer_size - *used) {
+            *used = buffer_size - 1;
+            return;
+        }
+        *used += (size_t)written;
+    }
+}
+
+static void build_pipeline_display(const Pipeline *pipeline, char *buffer,
+                                   size_t buffer_size)
+{
+    size_t used = 0;
+    buffer[0] = '\0';
+    for (size_t index = 0; index < pipeline->count; index++) {
+        const FlatCmd *command = &pipeline->commands[index];
+        append_argv_display(buffer, buffer_size, &used, command->argv,
+                            command->argc);
+        if (index + 1 < pipeline->count && used + 3 < buffer_size) {
+            buffer[used++] = ' ';
+            buffer[used++] = '|';
+            buffer[used++] = ' ';
+            buffer[used] = '\0';
+        }
+    }
 }
 
 static ExecResult execute_pipeline(const Pipeline *pipeline,
@@ -217,29 +251,8 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     }
 
     if (background) {
-        char command_line[4096] = {0};
-        size_t used = 0;
-        for (size_t index = 0; index < command_count; index++) {
-            const FlatCmd *command = &pipeline->commands[index];
-            for (size_t arg = 0; arg < command->argc; arg++) {
-                int written = snprintf(command_line + used,
-                                       sizeof(command_line) - used, "%s%s",
-                                       used == 0 ? "" : " ",
-                                       command->argv[arg]);
-                if (written < 0 || (size_t)written >= sizeof(command_line) - used) {
-                    used = sizeof(command_line) - 1;
-                    break;
-                }
-                used += (size_t)written;
-            }
-            if (index + 1 < command_count &&
-                used + 3 < sizeof(command_line)) {
-                command_line[used++] = ' ';
-                command_line[used++] = '|';
-                command_line[used++] = ' ';
-                command_line[used] = '\0';
-            }
-        }
+        char command_line[4096];
+        build_pipeline_display(pipeline, command_line, sizeof(command_line));
 
         Job *job = job_create(state->next_job_number, process_group,
                               command_line);
@@ -274,19 +287,70 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         return EXEC_HANDLED;
     }
 
+    /* Scratch job used only if Ctrl-Z stops this pipeline; discarded
+     * otherwise. Built before waiting so job_update_process() has
+     * somewhere to record each process's status as it changes. */
+    char display[4096];
+    build_pipeline_display(pipeline, display, sizeof(display));
+    Job *scratch = job_create(0, process_group, display);
+    if (scratch != NULL) {
+        for (size_t index = 0; index < command_count; index++) {
+            if (job_add_process(scratch, children[index],
+                                pipeline->commands[index].argv[0]) != 0) {
+                job_destroy(scratch);
+                scratch = NULL;
+                break;
+            }
+        }
+    }
+
     ExecResult pipeline_result = EXEC_HANDLED;
+    bool any_stopped = false;
     for (size_t index = 0; index < command_count; index++) {
         int status;
         pid_t waited;
         do {
-            waited = waitpid(children[index], &status, 0);
+            waited = waitpid(children[index], &status, WUNTRACED);
         } while (waited < 0 && errno == EINTR);
         if (waited < 0) {
             pipeline_result = EXEC_ERROR;
-        } else if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+            continue;
+        }
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
             pipeline_result = EXEC_ERROR;
         }
+        if (scratch != NULL) {
+            job_update_process(scratch, children[index], status);
+        }
+        if (WIFSTOPPED(status)) {
+            any_stopped = true;
+        }
     }
+
+    give_terminal(state, state->shell_pgid);
+    state->foreground_pgid = 0;
+
+    if (any_stopped && scratch != NULL) {
+        scratch->job_number = state->next_job_number++;
+        job_add(state, scratch);
+        printf("[%d] + Stopped    %s\n", scratch->job_number,
+               scratch->command_line);
+        fflush(stdout);
+        /* Any redirection helper writers are left running rather than
+         * waited on here: they aren't part of the job's process group, so
+         * they didn't stop with it, and one blocked writing into a pipe
+         * the now-stopped job isn't reading would hang the shell. They are
+         * still reaped generically by jobs_reap_background once they
+         * eventually exit. */
+        for (size_t index = 0; index < command_count; index++) {
+            free(resolved_paths[index]);
+        }
+        return EXEC_STOPPED;
+    }
+    if (scratch != NULL) {
+        job_destroy(scratch);
+    }
+
     for (size_t index = 0; index < command_count; index++) {
         if (input_writers[index] >= 0) {
             (void)input_redirection_wait_writer(input_writers[index]);
@@ -296,8 +360,6 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
         free(resolved_paths[index]);
     }
-    give_terminal(state, state->shell_pgid);
-    state->foreground_pgid = 0;
     return pipeline_result;
 }
 
@@ -432,7 +494,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
     int status;
     pid_t waited;
     do {
-        waited = waitpid(child, &status, 0);
+        waited = waitpid(child, &status, WUNTRACED);
     } while (waited < 0 && errno == EINTR);
     if (waited < 0) {
         if (writer >= 0) {
@@ -446,19 +508,41 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         fprintf(stderr, "cshell: wait failed\n");
         return EXEC_ERROR;
     }
+
+    give_terminal(state, state->shell_pgid);
+    state->foreground_pgid = 0;
+
+    if (WIFSTOPPED(status)) {
+        char display[4096];
+        size_t used = 0;
+        display[0] = '\0';
+        append_argv_display(display, sizeof(display), &used, command.argv,
+                            command.argc);
+        int job_number = state->next_job_number;
+        Job *job = job_create(job_number, child, display);
+        if (job != NULL && job_add_process(job, child, command.argv[0]) != 0) {
+            job_destroy(job);
+            job = NULL;
+        }
+        if (job != NULL) {
+            job_update_process(job, child, status);
+            job_add(state, job);
+            state->next_job_number++;
+            printf("[%d] + Stopped    %s\n", job_number, display);
+            fflush(stdout);
+        }
+        /* See execute_pipeline()'s stopped path: redirection helper
+         * writers are deliberately left running, not waited on here. */
+        return EXEC_STOPPED;
+    }
+
     if (writer >= 0 && input_redirection_wait_writer(writer) != 0) {
-        give_terminal(state, state->shell_pgid);
-        state->foreground_pgid = 0;
         return EXEC_ERROR;
     }
     if (output_writer >= 0 &&
         output_redirection_wait_writer(output_writer) != 0) {
-        give_terminal(state, state->shell_pgid);
-        state->foreground_pgid = 0;
         return EXEC_ERROR;
     }
-    give_terminal(state, state->shell_pgid);
-    state->foreground_pgid = 0;
     return EXEC_HANDLED;
 }
 

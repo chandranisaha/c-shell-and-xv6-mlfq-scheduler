@@ -41,7 +41,8 @@ typedef struct {
 typedef enum {
     EXEC_NOT_HANDLED,
     EXEC_HANDLED,
-    EXEC_ERROR
+    EXEC_ERROR,
+    EXEC_STOPPED
 } ExecResult;
 
 int exec_parse_first(const TokenList *tokens, FlatCmd *command);

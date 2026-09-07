@@ -15,9 +15,10 @@ The shell maintains its own working-directory state, displays a custom prompt,
 supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
-Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`) is
-complete. Terminal control (E2), `resume`/`ping` (E3/E4), and the xv6
-scheduler work are still pending.
+Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`)
+is complete. Part E2's Ctrl-C/Ctrl-Z terminal control is complete; the
+Ctrl-D/stopped-job exit semantics (the rest of E2), `resume`/`ping` (E3/E4),
+and the xv6 scheduler work are still pending.
 
 Implemented shell features:
 
@@ -58,6 +59,16 @@ Implemented shell features:
   `[job_number] pgid <pgid>` line followed by an indented `<pid> <name>
   <state>` line per still-running process, reaping already-exited processes
   before printing so finished ones never show up.
+- E2 (Ctrl-C/Ctrl-Z): the shell ignores `SIGINT`/`SIGTSTP`/`SIGTTOU` for
+  itself and hands the controlling terminal to a foreground job's process
+  group via `tcsetpgrp()` before waiting on it (reclaiming it afterward), so
+  Ctrl-C interrupts only the foreground job and Ctrl-Z stops it with
+  `waitpid(..., WUNTRACED)`, printing `[job_number] + Stopped    <command>`
+  and registering it as a tracked job (visible in `activities`) before
+  returning to the prompt. Background jobs are never handed the terminal, so
+  they're unaffected by either. Stopping a command partway through a `;`
+  sequence halts the rest of that sequence, the same as an unresolved
+  command does.
 
 ## Architecture and design choices
 
@@ -121,6 +132,18 @@ Important implementation decisions:
     It reuses `jobs_reap_background` to drop already-exited processes before
     printing, and relies on the job list already being maintained in launch
     order (`job_add` appends at the tail) to print oldest group first.
+11. E2 pairs `signals_ignore_terminal()` (shell process, at startup) with
+    `signals_restore_terminal_defaults()` (every forked child, right after
+    `setpgid()`, before it execve()s or runs a builtin). This second call is
+    load-bearing, not decorative: `fork()` inherits the parent's `SIG_IGN`
+    disposition, and `execve()` does not reset an already-ignored signal
+    back to default, so without it every foreground job would silently
+    inherit the shell's own ignore-disposition and become permanently immune
+    to Ctrl-C/Ctrl-Z. Redirection helper (feeder/fan-out) processes are
+    deliberately left un-waited-on if the job they serve gets stopped, since
+    they aren't part of the job's process group and a writer blocked on a
+    full pipe would otherwise hang the shell; they're still reaped without
+    leaking zombies by the existing generic `jobs_reap_background` sweep.
 
 
 ## Build and run in WSL
