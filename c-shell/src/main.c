@@ -18,6 +18,7 @@ int main(void)
         return 1;
     }
     signals_install();
+    signals_ignore_terminal();
 
     for (;;) {
         jobs_reap_background(&state, 0);

@@ -5,4 +5,15 @@ void signals_install(void);
 int signals_pending(void);
 void signals_clear(void);
 
+/* Makes the shell itself immune to terminal-generated job-control signals,
+ * per E2: SIGINT/SIGTSTP/SIGTTOU must never affect the shell process, only
+ * whichever process group currently owns the terminal (a foreground job). */
+void signals_ignore_terminal(void);
+
+/* A forked child must call this before execve()/running a builtin: fork()
+ * inherits the shell's SIG_IGN disposition for these three signals, and
+ * exec() does NOT reset an ignored signal back to default, so without this
+ * every foreground job would silently ignore Ctrl-C/Ctrl-Z too. */
+void signals_restore_terminal_defaults(void);
+
 #endif

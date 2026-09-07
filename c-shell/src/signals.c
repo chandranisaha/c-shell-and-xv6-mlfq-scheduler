@@ -30,3 +30,27 @@ void signals_clear(void)
 {
     sigchld_pending = 0;
 }
+
+void signals_ignore_terminal(void)
+{
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = SIG_IGN;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    (void)sigaction(SIGINT, &action, NULL);
+    (void)sigaction(SIGTSTP, &action, NULL);
+    (void)sigaction(SIGTTOU, &action, NULL);
+}
+
+void signals_restore_terminal_defaults(void)
+{
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = SIG_DFL;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    (void)sigaction(SIGINT, &action, NULL);
+    (void)sigaction(SIGTSTP, &action, NULL);
+    (void)sigaction(SIGTTOU, &action, NULL);
+}
