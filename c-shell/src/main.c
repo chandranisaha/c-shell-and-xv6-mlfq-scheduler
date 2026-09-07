@@ -7,6 +7,7 @@
 #include "shell.h"
 #include "signals.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -20,11 +21,13 @@ int main(void)
     signals_install();
     signals_ignore_terminal();
 
+    bool eof_warned = false;
     for (;;) {
         jobs_reap_background(&state, 0);
         signals_clear();
         if (prompt_print(&state) != 0) {
             printf("cshell: failed to print prompt\n");
+            shell_state_destroy(&state);
             return 1;
         }
 
@@ -32,9 +35,15 @@ int main(void)
         InputResult result = input_read_line(&line, &state);
         if (result == INPUT_EOF) {
             putchar('\n');
+            if (jobs_has_stopped(&state) && !eof_warned) {
+                printf("cshell: there are stopped jobs\n");
+                eof_warned = true;
+                continue;
+            }
             shell_state_destroy(&state);
             return 0;
         }
+        eof_warned = false;
         if (result == INPUT_ERROR) {
             printf("cshell: failed to read input\n");
             shell_state_destroy(&state);

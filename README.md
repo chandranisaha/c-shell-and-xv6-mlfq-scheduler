@@ -16,9 +16,8 @@ supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
 Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`)
-is complete. Part E2's Ctrl-C/Ctrl-Z terminal control is complete; the
-Ctrl-D/stopped-job exit semantics (the rest of E2), `resume`/`ping` (E3/E4),
-and the xv6 scheduler work are still pending.
+and Part E2 (terminal control) are complete. `resume`/`ping` (E3/E4) and the
+xv6 scheduler work are still pending.
 
 Implemented shell features:
 
@@ -69,6 +68,12 @@ Implemented shell features:
   they're unaffected by either. Stopping a command partway through a `;`
   sequence halts the rest of that sequence, the same as an unresolved
   command does.
+- E2 (Ctrl-D/exit): Ctrl-D at the prompt exits, unless a job is currently
+  Stopped, in which case it prints `cshell: there are stopped jobs` and
+  returns to the prompt instead — pressing Ctrl-D again right away (no other
+  input typed in between) exits anyway. Whenever the shell exits with any
+  background or stopped job still tracked, every one of them gets `SIGHUP`
+  sent to its process group first, without waiting for them to react.
 
 ## Architecture and design choices
 
@@ -144,6 +149,15 @@ Important implementation decisions:
     they aren't part of the job's process group and a writer blocked on a
     full pipe would otherwise hang the shell; they're still reaped without
     leaking zombies by the existing generic `jobs_reap_background` sweep.
+12. The `SIGHUP`-on-exit broadcast lives inside `shell_state_destroy()`
+    itself rather than at each of `main.c`'s several exit points, since that
+    function was already the one thing called on every exit path — one
+    place to get right instead of several places to remember. Note that a
+    *stopped* (not just backgrounded) job doesn't necessarily die from this
+    immediately: POSIX only wakes a stopped process for `SIGCONT`/`SIGKILL`,
+    so `SIGHUP` alone can leave it parked until something continues it —
+    `rules.md` only requires sending the signal without waiting, not
+    guaranteeing termination, so no extra `SIGCONT` was added.
 
 
 ## Build and run in WSL
