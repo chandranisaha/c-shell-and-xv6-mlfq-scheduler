@@ -158,6 +158,18 @@ Important implementation decisions:
     so `SIGHUP` alone can leave it parked until something continues it —
     `rules.md` only requires sending the signal without waiting, not
     guaranteeing termination, so no extra `SIGCONT` was added.
+13. **Bug fix:** `execute_part_c` used to call `builtin_execute()`
+    unconditionally in the parent before checking whether redirection was
+    present, then — if redirection *was* present — also ran it a second time
+    correctly redirected in the forked child. Every builtin combined with
+    redirection ran twice; for `peek < file` with no filename argument this
+    meant the first (erroneous) call read from the shell's own real stdin
+    before the file was ever connected, with visibly wrong output. Fixed by
+    splitting "is this a builtin" (a pure name check, no side effects) from
+    actually calling `builtin_execute()`, which now happens in exactly one
+    place depending on whether redirection is present. See `DESIGN_LOG.md`
+    (`bug-001`) for the full diagnosis — caught by finally reading fixture
+    *output*, not just exit codes.
 
 
 ## Build and run in WSL

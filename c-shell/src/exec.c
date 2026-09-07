@@ -412,19 +412,30 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         .count = command.argc,
         .capacity = command.argc,
     }};
-    BuiltinResult builtin = builtin_execute(state, &first_command);
-    if (builtin != BUILTIN_NOT_FOUND && input.input_count == 0 &&
+    /* Only a name check here, not an actual call: builtin_execute() has
+     * real side effects (peek reads stdin, hop changes the cwd, ...), and
+     * with redirection present those must happen exactly once, in the
+     * child, after the redirection is actually connected - never here in
+     * the parent first. Calling it unconditionally used to run every
+     * builtin combined with redirection twice, silently against the
+     * shell's own real stdin/stdout the first time. */
+    bool command_is_builtin = is_builtin_name(command.argv[0]);
+    if (command_is_builtin && input.input_count == 0 &&
         output.output_count == 0) {
+        BuiltinResult builtin = builtin_execute(state, &first_command);
         return builtin == BUILTIN_HANDLED ? EXEC_HANDLED : EXEC_ERROR;
     }
 
-    char *resolved_path = resolve_cmd_path(command.argv[0]);
-    if (builtin == BUILTIN_NOT_FOUND && resolved_path == NULL) {
-        input_redirection_close_parent(&input);
-        output_redirection_close_parent(&output);
-        fprintf(stderr, "cshell: command not found (%s)\n",
-                display_name(command.argv[0]));
-        return EXEC_ERROR;
+    char *resolved_path = NULL;
+    if (!command_is_builtin) {
+        resolved_path = resolve_cmd_path(command.argv[0]);
+        if (resolved_path == NULL) {
+            input_redirection_close_parent(&input);
+            output_redirection_close_parent(&output);
+            fprintf(stderr, "cshell: command not found (%s)\n",
+                    display_name(command.argv[0]));
+            return EXEC_ERROR;
+        }
     }
 
     char *argv[MAX_ARGS + 1];
@@ -450,7 +461,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         if (output_redirection_connect_child(&output) != 0) {
             _exit(1);
         }
-        if (builtin != BUILTIN_NOT_FOUND) {
+        if (command_is_builtin) {
             _exit(builtin_execute(state, &first_command) == BUILTIN_HANDLED
                       ? 0
                       : 1);
