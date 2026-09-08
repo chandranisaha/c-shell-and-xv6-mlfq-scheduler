@@ -63,4 +63,8 @@ ExecResult execute_part_d(const CommandLine *command_line, ShellState *state);
 ExecResult execute_part_d_background(const CommandLine *command_line,
                                      ShellState *state);
 
+/* E2/E3 shared terminal-control helper: best-effort tcsetpgrp(), silently a
+ * no-op when stdin isn't a controlling terminal. */
+void give_terminal(const ShellState *state, pid_t pgid);
+
 #endif

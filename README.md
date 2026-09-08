@@ -15,8 +15,8 @@ The shell maintains its own working-directory state, displays a custom prompt,
 supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
-Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`)
-and Part E2 (terminal control) are complete. `resume`/`ping` (E3/E4) and the
+Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`),
+E2 (terminal control), and E3 (`resume`) are complete. `ping` (E4) and the
 xv6 scheduler work are still pending.
 
 Implemented shell features:
@@ -74,6 +74,16 @@ Implemented shell features:
   input typed in between) exits anyway. Whenever the shell exits with any
   background or stopped job still tracked, every one of them gets `SIGHUP`
   sent to its process group first, without waiting for them to react.
+- E3: `resume %job_number (fg [--timeout <seconds>] | bg)` sends `SIGCONT`
+  to the job's process group and marks it Running either way. `bg` prints
+  `[N] + Running    <command>` and returns immediately. `fg` prints the
+  job's command line, hands it the terminal, and waits — re-printing
+  `[N] + Stopped    <command>` if it stops again, silently dropping it from
+  tracking if it finishes on its own (a resumed foreground job's normal
+  completion isn't reported, same as any other foreground command). With
+  `--timeout <seconds>`, an unfinished job gets `SIGTERM` and `resume: job
+  timed out` when the timer expires, with the pending timer always
+  cancelled once the job is no longer being waited on.
 
 ## Architecture and design choices
 
@@ -170,7 +180,12 @@ Important implementation decisions:
     place depending on whether redirection is present. See `DESIGN_LOG.md`
     (`bug-001`) for the full diagnosis — caught by finally reading fixture
     *output*, not just exit codes.
-
+14. `give_terminal()` (`exec.c`) and `job_remove()` (`jobs.c`) were promoted
+    from `static`/E2-only to shared, exported helpers so `resume.c` could
+    reuse the exact same terminal-handoff and job-list-removal logic rather
+    than duplicating it. `resume`'s own `--timeout` handling adds a third
+    minimal flag-only signal handler (`signals_install_alarm()` for
+    `SIGALRM`) following the same pattern `SIGCHLD`'s handler already used.
 
 ## Build and run in WSL
 

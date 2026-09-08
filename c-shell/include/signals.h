@@ -16,4 +16,11 @@ void signals_ignore_terminal(void);
  * every foreground job would silently ignore Ctrl-C/Ctrl-Z too. */
 void signals_restore_terminal_defaults(void);
 
+/* E3's `resume ... fg --timeout`: a minimal SIGALRM handler that only sets
+ * a flag, the same pattern as SIGCHLD above. Install once; the flag is
+ * checked after a waitpid() that alarm() was set up to interrupt. */
+void signals_install_alarm(void);
+int signals_alarm_fired(void);
+void signals_clear_alarm(void);
+
 #endif

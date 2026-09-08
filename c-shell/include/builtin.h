@@ -4,6 +4,7 @@
 #include "activities.h"
 #include "command.h"
 #include "peek.h"
+#include "resume.h"
 #include "reveal.h"
 #include "locate.h"
 #include "shell.h"

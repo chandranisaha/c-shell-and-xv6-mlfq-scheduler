@@ -165,8 +165,11 @@ void job_update_process(Job *job, pid_t pid, int status)
     }
 }
 
-static void remove_job(ShellState *state, Job *target)
+void job_remove(ShellState *state, Job *target)
 {
+    if (state == NULL || target == NULL) {
+        return;
+    }
     Job **link = &state->jobs;
     while (*link != NULL && *link != target) {
         link = &(*link)->next;
@@ -225,7 +228,7 @@ int jobs_reap_background(ShellState *state, int newline_before_first)
             printf("%s with pid %ld exited abnormally\n", name, report_pid);
         }
         fflush(stdout);
-        remove_job(state, job);
+        job_remove(state, job);
         reaped++;
     }
     return reaped;

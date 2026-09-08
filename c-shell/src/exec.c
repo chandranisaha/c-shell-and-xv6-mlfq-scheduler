@@ -29,7 +29,8 @@ static int is_builtin_name(const char *name)
             strcmp(visible_name, "reveal") == 0 ||
             strcmp(visible_name, "peek") == 0 ||
             strcmp(visible_name, "locate") == 0 ||
-            strcmp(visible_name, "activities") == 0);
+            strcmp(visible_name, "activities") == 0 ||
+            strcmp(visible_name, "resume") == 0);
 }
 
 static CommandLine make_stage_command(const FlatCmd *command,
@@ -56,7 +57,7 @@ static void close_pipeline_fds(int pipe_fds[][2], size_t pipe_count)
  * terminal so job-control signals (SIGINT/SIGTSTP) reach whichever process
  * group is actually in the foreground. Silently does nothing when stdin
  * isn't a controlling terminal (e.g. redirected test fixtures). */
-static void give_terminal(const ShellState *state, pid_t pgid)
+void give_terminal(const ShellState *state, pid_t pgid)
 {
     if (state == NULL || state->terminal_fd < 0) {
         return;

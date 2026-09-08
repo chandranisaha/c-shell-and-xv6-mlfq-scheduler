@@ -4,11 +4,18 @@
 #include <string.h>
 
 static volatile sig_atomic_t sigchld_pending;
+static volatile sig_atomic_t alarm_fired;
 
 static void handle_sigchld(int signal_number)
 {
     (void)signal_number;
     sigchld_pending = 1;
+}
+
+static void handle_alarm(int signal_number)
+{
+    (void)signal_number;
+    alarm_fired = 1;
 }
 
 void signals_install(void)
@@ -53,4 +60,24 @@ void signals_restore_terminal_defaults(void)
     (void)sigaction(SIGINT, &action, NULL);
     (void)sigaction(SIGTSTP, &action, NULL);
     (void)sigaction(SIGTTOU, &action, NULL);
+}
+
+void signals_install_alarm(void)
+{
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = handle_alarm;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    (void)sigaction(SIGALRM, &action, NULL);
+}
+
+int signals_alarm_fired(void)
+{
+    return alarm_fired != 0;
+}
+
+void signals_clear_alarm(void)
+{
+    alarm_fired = 0;
 }

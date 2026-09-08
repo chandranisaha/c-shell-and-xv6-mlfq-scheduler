@@ -20,6 +20,7 @@ int main(void)
     }
     signals_install();
     signals_ignore_terminal();
+    signals_install_alarm();
 
     bool eof_warned = false;
     for (;;) {

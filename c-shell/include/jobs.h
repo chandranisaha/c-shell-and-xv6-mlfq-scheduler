@@ -34,6 +34,7 @@ typedef struct Job {
 Job *job_create(int job_number, pid_t pgid, const char *command_line);
 void job_destroy(Job *job);
 void job_add(ShellState *state, Job *job);
+void job_remove(ShellState *state, Job *job);
 Job *job_find_by_number(const ShellState *state, int job_number);
 Job *job_find_by_pid(const ShellState *state, pid_t pid);
 Job *job_find_by_pgid(const ShellState *state, pid_t pgid);

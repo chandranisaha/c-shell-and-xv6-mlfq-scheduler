@@ -39,6 +39,11 @@ BuiltinResult builtin_execute(ShellState *state,
                    ? BUILTIN_HANDLED
                    : BUILTIN_ERROR;
     }
+    if (strcmp(name, "resume") == 0) {
+        return resume_execute(state, &command_line->tokens) == 0
+                   ? BUILTIN_HANDLED
+                   : BUILTIN_ERROR;
+    }
 
     return BUILTIN_NOT_FOUND;
 }
