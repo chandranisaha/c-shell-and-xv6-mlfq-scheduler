@@ -308,6 +308,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
 
     ExecResult pipeline_result = EXEC_HANDLED;
     bool any_stopped = false;
+    bool any_signaled = false;
     for (size_t index = 0; index < command_count; index++) {
         int status;
         pid_t waited;
@@ -326,6 +327,9 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
         if (WIFSTOPPED(status)) {
             any_stopped = true;
+        }
+        if (WIFSIGNALED(status)) {
+            any_signaled = true;
         }
     }
 
@@ -351,6 +355,17 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     }
     if (scratch != NULL) {
         job_destroy(scratch);
+    }
+
+    if (any_signaled) {
+        /* A foreground process killed by an uncaught signal (Ctrl-C being
+         * the common case) very likely left the cursor mid-line - nothing
+         * else in this codebase checks whether the terminal is at column 0
+         * before printing the next prompt, so make sure of it here. Not
+         * specified anywhere in rules.md; matches real shells' own
+         * behavior and keeps this consistent with execute_part_c(). */
+        putchar('\n');
+        fflush(stdout);
     }
 
     for (size_t index = 0; index < command_count; index++) {
@@ -547,6 +562,14 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         /* See execute_pipeline()'s stopped path: redirection helper
          * writers are deliberately left running, not waited on here. */
         return EXEC_STOPPED;
+    }
+
+    if (WIFSIGNALED(status)) {
+        /* See execute_pipeline()'s matching check: an uncaught signal
+         * (Ctrl-C) very likely left the cursor mid-line, and nothing
+         * ensures the next prompt starts on a fresh one otherwise. */
+        putchar('\n');
+        fflush(stdout);
     }
 
     if (writer >= 0 && input_redirection_wait_writer(writer) != 0) {

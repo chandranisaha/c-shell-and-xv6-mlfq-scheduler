@@ -67,7 +67,12 @@ Implemented shell features:
   returning to the prompt. Background jobs are never handed the terminal, so
   they're unaffected by either. Stopping a command partway through a `;`
   sequence halts the rest of that sequence, the same as an unresolved
-  command does.
+  command does. If a foreground command is killed by an uncaught signal
+  (Ctrl-C being the common case), a newline is printed before returning to
+  the prompt so it always starts on a fresh line, even if the command was
+  interrupted mid-line with no trailing output of its own — not written
+  down anywhere in `rules.md`, but matches real shells' own behavior; a
+  normally-exited command is left alone, no extra newline added.
 - E2 (Ctrl-D/exit): Ctrl-D at the prompt exits, unless a job is currently
   Stopped, in which case it prints `cshell: there are stopped jobs` and
   returns to the prompt instead — pressing Ctrl-D again right away (no other
@@ -201,6 +206,20 @@ Important implementation decisions:
     search this shell's own tracked job table, so a pid that merely exists
     on the system (verified against real pid `1`) naturally never matches
     and is correctly reported as unknown.
+16. **Consistency fix:** neither `execute_part_c()` nor `execute_pipeline()`
+    used to distinguish a foreground child dying from an uncaught signal
+    (`WIFSIGNALED`) from one that exited normally — both `printf()`ed
+    nothing and just returned. Since nothing else ever checks whether the
+    terminal is at column 0 before printing the next prompt
+    (`prompt_print()` is an unconditional `printf`, no leading newline, no
+    cursor-position awareness), a Ctrl-C that landed before the interrupted
+    command's own output happened to end in `\n` left the next prompt
+    glued directly onto it. Added an identical `WIFSIGNALED` check — print
+    one `\n` before returning — to both foreground wait paths (a pipeline
+    can have multiple processes, so `execute_pipeline()` tracks one
+    `any_signaled` flag across the whole wait loop rather than printing per
+    process). See `DESIGN_LOG.md` (`e2-003`) for the full trace, including
+    why this specific case doesn't show up for a normal exit.
 
 ## Build and run in WSL
 
