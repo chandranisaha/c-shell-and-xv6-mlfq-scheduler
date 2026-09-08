@@ -15,9 +15,9 @@ The shell maintains its own working-directory state, displays a custom prompt,
 supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
-Parts A, B, C, and D are complete and tested in WSL. Part E1 (`activities`),
-E2 (terminal control), and E3 (`resume`) are complete. `ping` (E4) and the
-xv6 scheduler work are still pending.
+Parts A through E of the C-Shell are complete and tested in WSL. Part F
+(`spy`/`snoop`, the optional "Fun Stuff" section) and the separate xv6 MLFQ
+scheduler work are still pending.
 
 Implemented shell features:
 
@@ -84,6 +84,15 @@ Implemented shell features:
   `--timeout <seconds>`, an unfinished job gets `SIGTERM` and `resume: job
   timed out` when the timer expires, with the pending timer always
   cancelled once the job is no longer being waited on.
+- E4: `ping <target> <signal_number>` validates the signal number (a
+  non-negative integer, checked *before* the target is ever looked up) and
+  sends `signal_number % 64` to the target — a plain number is a pid
+  (signal goes to just that process), a `%`-prefixed number is a job
+  (signal goes to its whole process group). Only pids/jobs this shell
+  itself spawned and is still tracking can be targeted — a pid that merely
+  exists on the system is reported as `ping: no such process found`. The
+  success message always echoes the originally typed numbers verbatim, not
+  the reduced signal value.
 
 ## Architecture and design choices
 
@@ -186,6 +195,12 @@ Important implementation decisions:
     than duplicating it. `resume`'s own `--timeout` handling adds a third
     minimal flag-only signal handler (`signals_install_alarm()` for
     `SIGALRM`) following the same pattern `SIGCHLD`'s handler already used.
+15. `ping`'s ownership rule ("only pids/jobs this shell spawned") falls out
+    of reusing `jobs.c`'s existing `job_find_by_pid()`/`job_find_by_number()`
+    rather than needing any new checking logic — those functions only ever
+    search this shell's own tracked job table, so a pid that merely exists
+    on the system (verified against real pid `1`) naturally never matches
+    and is correctly reported as unknown.
 
 ## Build and run in WSL
 

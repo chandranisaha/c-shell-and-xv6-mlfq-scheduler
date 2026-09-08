@@ -30,7 +30,8 @@ static int is_builtin_name(const char *name)
             strcmp(visible_name, "peek") == 0 ||
             strcmp(visible_name, "locate") == 0 ||
             strcmp(visible_name, "activities") == 0 ||
-            strcmp(visible_name, "resume") == 0);
+            strcmp(visible_name, "resume") == 0 ||
+            strcmp(visible_name, "ping") == 0);
 }
 
 static CommandLine make_stage_command(const FlatCmd *command,
