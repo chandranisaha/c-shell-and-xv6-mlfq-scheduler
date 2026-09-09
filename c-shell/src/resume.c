@@ -186,6 +186,9 @@ int resume_execute(ShellState *state, const TokenList *tokens)
     }
 
     if (any_stopped) {
+        /* A resumed foreground job stopped again - same as exec.c, move
+         * past the "^Z" the tty just echoed with no newline of its own. */
+        putchar('\n');
         printf("[%d] + Stopped    %s\n", job->job_number, job->command_line);
         fflush(stdout);
     } else if (job_is_finished(job)) {

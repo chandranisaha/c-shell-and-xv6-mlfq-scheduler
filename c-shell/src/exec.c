@@ -430,6 +430,12 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     if (any_stopped && scratch != NULL) {
         scratch->job_number = state->next_job_number++;
         job_add(state, scratch);
+        /* Ctrl-Z is echoed by the tty as "^Z" with no newline after it, so
+         * without this the Stopped line lands glued to it. The E2 and E3
+         * examples both show them on separate lines. Same reasoning as the
+         * WIFSIGNALED newline a few lines below; one newline for the whole
+         * pipeline, not one per stopped stage. */
+        putchar('\n');
         printf("[%d] + Stopped    %s\n", scratch->job_number,
                scratch->command_line);
         fflush(stdout);
@@ -645,6 +651,8 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
             job_update_process(job, child, status);
             job_add(state, job);
             state->next_job_number++;
+            /* See execute_pipeline(): move past the tty's echoed "^Z". */
+            putchar('\n');
             printf("[%d] + Stopped    %s\n", job_number, display);
             fflush(stdout);
         }
