@@ -54,6 +54,38 @@ static void close_pipeline_fds(int pipe_fds[][2], size_t pipe_count)
     }
 }
 
+/* Closes whichever ends of the Q47 starting-gun pipe are still open in
+ * this process, idempotently. Closing the write end is what releases the
+ * children, so every path out of execute_pipeline() has to reach this. */
+static void close_sync_pipe(int sync_fds[2])
+{
+    for (size_t end = 0; end < 2; end++) {
+        if (sync_fds[end] >= 0) {
+            close(sync_fds[end]);
+            sync_fds[end] = -1;
+        }
+    }
+}
+
+/* Child side of the starting gun: drop our copy of the write end (so the
+ * parent's close can actually reach zero writers) and block until the
+ * parent fires it. */
+static void wait_for_start(int sync_fds[2])
+{
+    if (sync_fds[1] < 0) {
+        return;
+    }
+    close(sync_fds[1]);
+    sync_fds[1] = -1;
+    char ignored;
+    ssize_t amount;
+    do {
+        amount = read(sync_fds[0], &ignored, 1);
+    } while (amount < 0 && errno == EINTR);
+    close(sync_fds[0]);
+    sync_fds[0] = -1;
+}
+
 /* Best-effort terminal handoff for E2: give/reclaim the controlling
  * terminal so job-control signals (SIGINT/SIGTSTP) reach whichever process
  * group is actually in the foreground. Silently does nothing when stdin
@@ -150,6 +182,27 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
     }
 
+    /* Q47: the `[job] pid` line must appear before any of the background
+     * command's own output, but fork() returns in parent and child at the
+     * same instant, so without help the child can reach execve() first.
+     * This pipe is the starting gun: every child blocks reading it and is
+     * released only once the parent has closed the write end, which it
+     * does immediately after printing the job line. read() returns 0 only
+     * when *every* copy of the write end is gone, so one close in the
+     * parent frees the whole pipeline at once. Foreground commands print
+     * no job line and so need no starting gun. */
+    int sync_fds[2] = {-1, -1};
+    if (background && pipe(sync_fds) != 0) {
+        close_pipeline_fds(pipe_fds, pipe_count);
+        for (size_t cleanup = 0; cleanup < command_count; cleanup++) {
+            input_redirection_close_parent(&inputs[cleanup]);
+            output_redirection_close_parent(&outputs[cleanup]);
+            free(resolved_paths[cleanup]);
+        }
+        fprintf(stderr, "cshell: unable to create pipe\n");
+        return EXEC_ERROR;
+    }
+
     size_t launched = 0;
     pid_t process_group = 0;
     for (size_t index = 0; index < command_count; index++) {
@@ -157,6 +210,10 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         if (child < 0) {
             fprintf(stderr, "cshell: unable to fork\n");
             close_pipeline_fds(pipe_fds, pipe_count);
+            /* Release any children already parked on the starting gun,
+             * otherwise the waitpid() loop below waits on processes that
+             * are themselves waiting on us. */
+            close_sync_pipe(sync_fds);
             for (size_t cleanup = 0; cleanup < command_count; cleanup++) {
                 input_redirection_close_parent(&inputs[cleanup]);
                 output_redirection_close_parent(&outputs[cleanup]);
@@ -183,6 +240,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
             _exit(1);
         }
         signals_restore_terminal_defaults();
+        wait_for_start(sync_fds);
 
         if (background && index == 0 && inputs[index].input_count == 0) {
             int null_input = open("/dev/null", O_RDONLY);
@@ -242,16 +300,15 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         give_terminal(state, process_group);
     }
     close_pipeline_fds(pipe_fds, pipe_count);
-    for (size_t index = 0; index < command_count; index++) {
-        if (inputs[index].input_count != 0) {
-            input_writers[index] = input_redirection_start_writer(&inputs[index]);
-        }
-        if (outputs[index].output_count != 0) {
-            output_writers[index] =
-                output_redirection_start_writer(&outputs[index]);
-        }
+    if (sync_fds[0] >= 0) {
+        close(sync_fds[0]);
+        sync_fds[0] = -1;
     }
 
+    /* The job line and the starting gun both have to come before the
+     * redirection helpers are forked: those helpers never exec, so a copy
+     * of the write end left open in one of them would keep the children
+     * parked for as long as the helper runs. */
     if (background) {
         char command_line[4096];
         build_pipeline_display(pipeline, command_line, sizeof(command_line));
@@ -259,6 +316,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         Job *job = job_create(state->next_job_number, process_group,
                               command_line);
         if (job == NULL) {
+            close_sync_pipe(sync_fds);
             (void)kill(-process_group, SIGTERM);
             for (size_t index = 0; index < command_count; index++) {
                 (void)waitpid(children[index], NULL, 0);
@@ -270,6 +328,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
             if (job_add_process(job, children[index],
                                 pipeline->commands[index].argv[0]) != 0) {
                 job_destroy(job);
+                close_sync_pipe(sync_fds);
                 (void)kill(-process_group, SIGTERM);
                 for (size_t cleanup = 0; cleanup < command_count; cleanup++) {
                     (void)waitpid(children[cleanup], NULL, 0);
@@ -283,6 +342,21 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
                (long)children[0]);
         fflush(stdout);
         state->next_job_number++;
+        /* Job line is on screen and flushed - fire the starting gun. */
+        close_sync_pipe(sync_fds);
+    }
+
+    for (size_t index = 0; index < command_count; index++) {
+        if (inputs[index].input_count != 0) {
+            input_writers[index] = input_redirection_start_writer(&inputs[index]);
+        }
+        if (outputs[index].output_count != 0) {
+            output_writers[index] =
+                output_redirection_start_writer(&outputs[index]);
+        }
+    }
+
+    if (background) {
         for (size_t index = 0; index < command_count; index++) {
             free(resolved_paths[index]);
         }
