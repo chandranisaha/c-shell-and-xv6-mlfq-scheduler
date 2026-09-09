@@ -45,11 +45,13 @@ static void mark_job_running(Job *job)
  * alarm() first and sends SIGTERM to the whole job on expiry, reporting
  * that back via *timed_out. Reclaims nothing and prints nothing itself -
  * the caller owns the terminal handoff and all user-facing messages. */
-static bool wait_for_job(Job *job, long timeout_seconds, bool *timed_out)
+static bool wait_for_job(Job *job, long timeout_seconds, bool *timed_out,
+                         bool *any_signaled)
 {
     bool use_timeout = timeout_seconds >= 0;
     bool any_stopped = false;
     *timed_out = false;
+    *any_signaled = false;
 
     if (use_timeout && timeout_seconds == 0) {
         /* alarm(0) cancels a timer instead of firing immediately, so a
@@ -88,6 +90,9 @@ static bool wait_for_job(Job *job, long timeout_seconds, bool *timed_out)
         job_update_process(job, process->pid, status);
         if (WIFSTOPPED(status)) {
             any_stopped = true;
+        }
+        if (WIFSIGNALED(status)) {
+            *any_signaled = true;
         }
     }
 
@@ -171,7 +176,9 @@ int resume_execute(ShellState *state, const TokenList *tokens)
     give_terminal(state, job->pgid);
 
     bool timed_out = false;
-    bool any_stopped = wait_for_job(job, timeout_seconds, &timed_out);
+    bool any_signaled = false;
+    bool any_stopped =
+        wait_for_job(job, timeout_seconds, &timed_out, &any_signaled);
 
     give_terminal(state, state->shell_pgid);
     state->foreground_pgid = 0;
@@ -186,11 +193,17 @@ int resume_execute(ShellState *state, const TokenList *tokens)
     }
 
     if (any_stopped) {
-        /* A resumed foreground job stopped again - same as exec.c, move
-         * past the "^Z" the tty just echoed with no newline of its own. */
+        /* move past the "^Z" the tty echoed with no newline of its own */
         putchar('\n');
         printf("[%d] + Stopped    %s\n", job->job_number, job->command_line);
         fflush(stdout);
+    } else if (any_signaled) {
+        /* same for "^C", so the next prompt starts on a fresh line */
+        putchar('\n');
+        fflush(stdout);
+        if (job_is_finished(job)) {
+            job_remove(state, job);
+        }
     } else if (job_is_finished(job)) {
         job_remove(state, job);
     }
