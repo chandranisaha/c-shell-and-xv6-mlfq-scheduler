@@ -76,8 +76,15 @@ Implemented shell features:
   interrupted mid-line with no trailing output of its own — not written
   down anywhere in `rules.md`, but matches real shells' own behavior; a
   normally-exited command is left alone, no extra newline added.
-- E2 (Ctrl-D/exit): Ctrl-D at the prompt exits, unless a job is currently
-  Stopped, in which case it prints `cshell: there are stopped jobs` and
+- E2 (Ctrl-D/exit): Ctrl-D exits whenever it makes `read()` return 0 —
+  which, in canonical mode, means an empty line buffer. On a half-typed
+  line the first Ctrl-D only flushes what was typed (`read()` returns those
+  bytes, not 0), so the shell stays; a second Ctrl-D is then on an empty
+  buffer and exits, discarding the half-typed text rather than running it.
+  Off a terminal there is no Ctrl-D, so a final line with no trailing
+  newline is still executed rather than dropped. Ctrl-D exits unless a job
+  is currently Stopped, in which case it prints
+  `cshell: there are stopped jobs` and
   returns to the prompt instead — pressing Ctrl-D again right away (no other
   input typed in between) exits anyway. Whenever the shell exits with any
   background or stopped job still tracked, every one of them gets `SIGHUP`

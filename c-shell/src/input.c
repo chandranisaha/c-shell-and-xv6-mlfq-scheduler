@@ -27,7 +27,18 @@ InputResult input_read_line(char **line, ShellState *state)
         ssize_t amount = read(STDIN_FILENO, &character, 1);
 
         if (amount == 0) {
-            if (length == 0) {
+            /* Q55: on a terminal, read() returning 0 is always EOF, even
+             * with a half-typed line already collected. Ctrl-D on a
+             * non-empty line does not produce this - it just flushes what
+             * was typed, so read() returns those bytes and we loop. Only
+             * a *second* Ctrl-D, now on an empty tty buffer, gets here,
+             * and that means exit; the half-typed line is discarded
+             * rather than executed.
+             *
+             * Off a terminal there is no Ctrl-D and no second chance, so
+             * a final line with no trailing newline (a script piped in,
+             * say) is still delivered rather than silently dropped. */
+            if (length == 0 || isatty(STDIN_FILENO)) {
                 free(*line);
                 *line = NULL;
                 return INPUT_EOF;
