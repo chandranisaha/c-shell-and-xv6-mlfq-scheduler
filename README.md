@@ -236,6 +236,29 @@ Important implementation decisions:
     process). See `DESIGN_LOG.md` (`e2-003`) for the full trace, including
     why this specific case doesn't show up for a normal exit.
 
+17. **Bug fix:** a builtin used with redirection or inside a pipeline runs
+    in a forked child that finishes with `_exit()`, which deliberately
+    skips stdio flushing. That is invisible while stdout is a terminal
+    (stdio is line buffered, so every newline pushes the line out), but the
+    moment stdout is a pipe or a file stdio switches to fully buffered and
+    `_exit()` discards the lot - `reveal > out.txt` wrote a 0-byte file,
+    `reveal | peek` and `echo hi | peek -n` printed nothing. `peek` without
+    `-n` was unaffected only because it writes with raw `write()` rather
+    than stdio. Both child call sites now go through a shared
+    `run_builtin_child()` helper in `exec.c` that flushes every stream
+    before exiting and reports a failed flush as a failed command. See
+    `DESIGN_LOG.md` (`dd-011`).
+18. **Bug fix:** `prompt_print()` treated a failed `printf`/`fflush` as
+    fatal, and `main()` responds to that by exiting. Since no handler in
+    this shell uses `SA_RESTART` - `input_read_line()` depends on `read()`
+    returning `EINTR` - the `write()` behind that flush can legitimately
+    fail with `EINTR` whenever a child changes state at the wrong instant,
+    which `resume %job bg` reproduces (the `SIGCONT` it sends comes back as
+    a `SIGCHLD` microseconds later). The flush is now retried while
+    `errno == EINTR`; the prompt carries no trailing newline, so nothing has
+    been written when the first attempt is interrupted and the retry sends
+    the queued bytes exactly once. See `DESIGN_LOG.md` (`dd-012`).
+
 ## Build and run in WSL
 
 ```bash
