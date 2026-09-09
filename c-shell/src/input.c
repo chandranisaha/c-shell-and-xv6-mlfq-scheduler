@@ -37,7 +37,19 @@ InputResult input_read_line(char **line, ShellState *state)
 
         if (amount < 0) {
             if (errno == EINTR) {
-                /* A signal (in practice SIGCHLD) landed while we were
+                /* Ctrl-C reached the shell itself, which only happens when
+                 * no foreground job owns the terminal - i.e. the user hit
+                 * it at an idle prompt. The tty driver has already flushed
+                 * its input queue, so anything half-typed is gone; hand
+                 * back INPUT_INTERRUPTED and let the main loop draw a
+                 * fresh prompt (Q54). */
+                if (signals_interrupt_pending()) {
+                    signals_clear_interrupt();
+                    free(*line);
+                    *line = NULL;
+                    return INPUT_INTERRUPTED;
+                }
+                /* Otherwise a signal (in practice SIGCHLD) landed while we were
                  * blocked. Q50/Q58: bash reaps in the handler but prints
                  * the completion message right before the *next* prompt,
                  * never mid-line - and that is what the main loop already

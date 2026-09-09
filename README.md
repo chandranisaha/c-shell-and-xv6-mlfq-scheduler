@@ -60,8 +60,9 @@ Implemented shell features:
   `[job_number] pgid <pgid>` line followed by an indented `<pid> <name>
   <state>` line per still-running process, reaping already-exited processes
   before printing so finished ones never show up.
-- E2 (Ctrl-C/Ctrl-Z): the shell ignores `SIGINT`/`SIGTSTP`/`SIGTTOU` for
-  itself and hands the controlling terminal to a foreground job's process
+- E2 (Ctrl-C/Ctrl-Z): the shell gives `SIGINT` a flag-only handler and
+  ignores `SIGTSTP`/`SIGTTOU` for itself, so none of the three can kill or
+  suspend it, and hands the controlling terminal to a foreground job's process
   group via `tcsetpgrp()` before waiting on it (reclaiming it afterward), so
   Ctrl-C interrupts only the foreground job and Ctrl-Z stops it with
   `waitpid(..., WUNTRACED)`, printing `[job_number] + Stopped    <command>`

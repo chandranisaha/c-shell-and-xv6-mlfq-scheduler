@@ -26,6 +26,7 @@ int main(void)
     for (;;) {
         jobs_reap_background(&state);
         signals_clear();
+        signals_clear_interrupt();
         if (prompt_print(&state) != 0) {
             printf("cshell: failed to print prompt\n");
             shell_state_destroy(&state);
@@ -51,6 +52,9 @@ int main(void)
             return 1;
         }
         if (result == INPUT_INTERRUPTED) {
+            /* The kernel echoed "^C" with no newline of its own, so move
+             * to a fresh line before the loop redraws the prompt. */
+            putchar('\n');
             continue;
         }
         if (result == INPUT_TOO_LONG) {
