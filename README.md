@@ -55,7 +55,13 @@ Implemented shell features:
   the user is typing. The `[job_number] pid` line is guaranteed to print
   before any of the background command's own output, using a
   synchronisation pipe that holds every child at the starting line until
-  the parent has printed and flushed it.
+  the parent has printed and flushed it. Requirement 13 ("background
+  processes must not have access to the terminal for input") is satisfied
+  by process-group isolation rather than by redirecting stdin: a background
+  group that reads the terminal is sent `SIGTTIN` by the kernel and stops
+  before it can consume a byte, which keeps the job alive and listable in
+  `activities` — the E1/E4 examples depend on `cat | sort &` still being
+  there afterwards.
 - E1: `activities` lists every tracked process group, oldest first, one
   `[job_number] pgid <pgid>` line followed by an indented `<pid> <name>
   <state>` line per still-running process, reaping already-exited processes

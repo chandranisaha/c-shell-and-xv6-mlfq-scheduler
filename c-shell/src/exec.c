@@ -261,16 +261,10 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         signals_restore_terminal_defaults();
         wait_for_start(sync_fds);
 
-        /* A background job's stdin is deliberately left alone - it keeps
-         * the terminal, exactly like the foreground case. We used to point
-         * it at /dev/null to stop a background job eating the user's typed
-         * input, but that makes anything that reads stdin die instantly:
-         * `cat | sort &` saw EOF, exited, and the whole job was gone
-         * before `activities` could list it - which is precisely the job
-         * the E1 and E4 examples are built around. POSIX already solves
-         * the input-stealing problem properly: a background process group
-         * that reads the terminal is sent SIGTTIN and stops before it can
-         * consume a single byte. */
+        /* background jobs keep their stdin. pointing it at /dev/null kills
+         * anything that reads - `cat | sort &` saw EOF and vanished before
+         * activities could list it. the kernel already keeps them off the
+         * terminal: a background group that reads it gets SIGTTIN. */
 
         if (index > 0 && dup2(pipe_fds[index - 1][0], STDIN_FILENO) < 0) {
             _exit(1);
