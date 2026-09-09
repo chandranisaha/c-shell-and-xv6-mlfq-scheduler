@@ -203,15 +203,12 @@ int jobs_reap_background(ShellState *state, int newline_before_first)
             continue;
         }
 
+        /* Only the first command of a pipeline is reported, so the verdict
+         * is taken from its status alone - consistent with the pid and name
+         * printed below. A process that called exit() counted as "normal"
+         * whatever its exit code; only death by signal is abnormal. */
         JobProcess *first = job->processes;
-        bool all_succeeded = true;
-        for (JobProcess *process = job->processes; process != NULL;
-             process = process->next) {
-            if (!WIFEXITED(process->status) || WEXITSTATUS(process->status) != 0) {
-                all_succeeded = false;
-                break;
-            }
-        }
+        bool exited_normally = first != NULL && WIFEXITED(first->status);
 
         const char *name = (first != NULL && first->command_name != NULL)
                                ? job_display_name(first->command_name)
@@ -222,7 +219,7 @@ int jobs_reap_background(ShellState *state, int newline_before_first)
             putchar('\n');
         }
 
-        if (all_succeeded) {
+        if (exited_normally) {
             printf("%s with pid %ld exited normally\n", name, report_pid);
         } else {
             printf("%s with pid %ld exited abnormally\n", name, report_pid);
