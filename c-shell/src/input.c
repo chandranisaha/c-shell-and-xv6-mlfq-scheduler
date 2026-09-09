@@ -1,6 +1,4 @@
 #include "input.h"
-#include "jobs.h"
-#include "prompt.h"
 #include "signals.h"
 
 #include <errno.h>
@@ -39,30 +37,21 @@ InputResult input_read_line(char **line, ShellState *state)
 
         if (amount < 0) {
             if (errno == EINTR) {
-                if (state != NULL) {
-                    int interactive = isatty(STDIN_FILENO);
-                    /* The terminal is in canonical mode: whatever the user
-                     * has typed so far on the current line is only echoed
-                     * by the kernel tty driver, not yet delivered to us (no
-                     * newline yet), so `length` is still 0 here and we have
-                     * no way to know what is on screen. Do NOT erase the
-                     * current line - doing so would wipe out those
-                     * kernel-echoed, not-yet-delivered characters and
-                     * desync the display from the pending input. Instead,
-                     * simply move past the current line with a newline so
-                     * the notification (and any already-typed text above
-                     * it) stay intact, matching the assignment's own
-                     * example transcript. */
-                    int reaped = jobs_reap_background(state, interactive);
-                    signals_clear();
-                    if (reaped > 0 && interactive) {
-                        if (prompt_print(state) != 0) {
-                            free(*line);
-                            *line = NULL;
-                            return INPUT_ERROR;
-                        }
-                    }
-                }
+                /* A signal (in practice SIGCHLD) landed while we were
+                 * blocked. Q50/Q58: bash reaps in the handler but prints
+                 * the completion message right before the *next* prompt,
+                 * never mid-line - and that is what the main loop already
+                 * does, once per iteration just above prompt_print(). So
+                 * there is deliberately nothing to do here but resume.
+                 *
+                 * Printing here instead was the old behaviour, and it can
+                 * never be made correct in canonical mode: whatever the
+                 * user has typed so far has been echoed by the kernel tty
+                 * driver but not delivered to us (no newline yet), so
+                 * `length` is still 0 and we cannot redraw the typed text
+                 * that Q58 requires us to redraw. Resuming the read leaves
+                 * the kernel's line buffer untouched, so the interruption
+                 * is completely invisible. */
                 continue;
             }
             free(*line);

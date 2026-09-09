@@ -24,7 +24,7 @@ int main(void)
 
     bool eof_warned = false;
     for (;;) {
-        jobs_reap_background(&state, 0);
+        jobs_reap_background(&state);
         signals_clear();
         if (prompt_print(&state) != 0) {
             printf("cshell: failed to print prompt\n");

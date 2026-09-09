@@ -17,7 +17,7 @@ int activities_execute(ShellState *state, const TokenList *tokens)
     }
 
     /* Processes that have exited must be removed before printing. */
-    jobs_reap_background(state, 0);
+    jobs_reap_background(state);
 
     for (const Job *job = state->jobs; job != NULL; job = job->next) {
         printf("[%d] pgid %ld\n", job->job_number, (long)job->pgid);

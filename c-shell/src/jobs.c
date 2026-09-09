@@ -185,7 +185,7 @@ static const char *job_display_name(const char *name)
     return (name != NULL && name[0] == '%') ? name + 1 : name;
 }
 
-int jobs_reap_background(ShellState *state, int newline_before_first)
+int jobs_reap_background(ShellState *state)
 {
     if (state == NULL) {
         return 0;
@@ -214,10 +214,6 @@ int jobs_reap_background(ShellState *state, int newline_before_first)
                                ? job_display_name(first->command_name)
                                : "command";
         long report_pid = (long)(first != NULL ? first->pid : job->pgid);
-
-        if (reaped == 0 && newline_before_first) {
-            putchar('\n');
-        }
 
         if (exited_normally) {
             printf("%s with pid %ld exited normally\n", name, report_pid);

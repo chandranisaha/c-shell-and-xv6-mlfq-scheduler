@@ -50,10 +50,12 @@ Implemented shell features:
   A command trailing the last `&` with no `&` of its own runs in the
   foreground, per the A3 grammar (`BG -> WORD ARG`, no operator required) and
   the assignment's own `sleep 1 & sleep 2 & cat` example. Background
-  completions are reported as soon as they happen, including mid-read at the
-  prompt, without disturbing text the user has already typed on the current
-  line (see `DESIGN_LOG.md` entry d2-010 for the interactive-echo bug this
-  replaced).
+  completions are reported once per main-loop iteration, immediately
+  before the next prompt is drawn, so a message never lands mid-line while
+  the user is typing. The `[job_number] pid` line is guaranteed to print
+  before any of the background command's own output, using a
+  synchronisation pipe that holds every child at the starting line until
+  the parent has printed and flushed it.
 - E1: `activities` lists every tracked process group, oldest first, one
   `[job_number] pgid <pgid>` line followed by an indented `<pid> <name>
   <state>` line per still-running process, reaping already-exited processes
@@ -146,14 +148,19 @@ Important implementation decisions:
 9. `signals.c` installs a minimal `SIGCHLD` handler that only sets a
    `volatile sig_atomic_t` flag (no `printf`/`malloc` inside the handler).
    `jobs.c` does the real reaping (`waitpid(-1, ..., WNOHANG)` in a loop)
-   from normal shell code: once at the top of the main loop before each
-   prompt, and from `input_read_line`'s `EINTR` branch so a background job
-   finishing while the shell is blocked reading the next line is reported
-   immediately rather than only after the next command runs. The terminal is
-   left in canonical mode (no `tcsetattr`), so that `EINTR` handler never
-   erases or rewrites anything already echoed by the kernel for the
-   in-progress line — it only adds a leading newline and prints the
-   notification plus a fresh prompt underneath.
+   from normal shell code, in exactly one place: the top of the main loop,
+   immediately before `prompt_print()`. That is bash's own arrangement —
+   reap on the signal, report just before the next prompt is drawn — and it
+   means a completion message can never land in the middle of a line the
+   user is halfway through typing. `input_read_line()` deliberately does
+   nothing on `EINTR` but resume the `read()`, leaving the kernel's line
+   buffer untouched so the interruption is invisible. Printing from the
+   `EINTR` branch instead (the earlier approach) cannot be made correct
+   here: the terminal is in canonical mode, so text typed on the current
+   line has been echoed by the kernel but not yet delivered to the shell,
+   and there is no way to redraw what we cannot see. The trade-off is that
+   sitting idle at the prompt you won't see the message until you press
+   Enter — same as bash.
 10. `activities` is dispatched through the same `builtin_execute`/
     `is_builtin_name` path as `hop`/`reveal`/`peek`/`locate`, so it also works
     combined with redirection or inside a pipeline (which run it in a forked
