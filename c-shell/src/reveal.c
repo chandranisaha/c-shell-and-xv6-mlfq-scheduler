@@ -107,8 +107,11 @@ static int reveal_directory(const char *directory, const char *display_prefix,
 
     for (size_t index = 0; index < count; index++) {
         const DirectoryEntry *entry = &entries[index];
+        /* Q27: the trailing "/" is a display aid for the recursive listing
+         * only - a plain `reveal` prints bare names. Sorting already
+         * compares bare names either way (Q19). */
         printf("%s%s%s\n", display_prefix, entry->name,
-               entry->is_directory ? "/" : "");
+               (recursive && entry->is_directory) ? "/" : "");
 
         if (recursive && entry->is_directory) {
             char child_path[PATH_MAX * 2];
