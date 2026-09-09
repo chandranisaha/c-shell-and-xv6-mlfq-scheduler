@@ -41,6 +41,13 @@ static int collect_entries(const char *directory, int show_hidden,
     size_t capacity = 0;
     struct dirent *entry;
     while ((entry = readdir(handle)) != NULL) {
+        /* `reveal -a` is `ls -A`, not `ls -a`: "." and ".." are never
+         * listed, whatever the flags. Besides matching the clarified
+         * spec, this is what keeps `-t` from recursing forever. */
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
         if (!show_hidden && entry->d_name[0] == '.') {
             continue;
         }
@@ -103,9 +110,7 @@ static int reveal_directory(const char *directory, const char *display_prefix,
         printf("%s%s%s\n", display_prefix, entry->name,
                entry->is_directory ? "/" : "");
 
-        if (recursive && entry->is_directory &&
-            strcmp(entry->name, ".") != 0 &&
-            strcmp(entry->name, "..") != 0) {
+        if (recursive && entry->is_directory) {
             char child_path[PATH_MAX * 2];
             char child_prefix[PATH_MAX * 2];
             int path_written = snprintf(child_path, sizeof(child_path), "%s/%s",
