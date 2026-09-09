@@ -75,16 +75,21 @@ static int print_line(const LineBuffer *line, size_t number, int numbered)
     return fwrite(line->data, 1, line->length, stdout) == line->length ? 0 : -1;
 }
 
-static int print_stream(int fd, int numbered)
+/* Q33: `-n` numbering is continuous across every argument on one peek
+ * command line, so the running count lives in the caller and is threaded
+ * through here rather than restarting at 0 per file. */
+static int print_stream(int fd, int numbered, size_t *counter)
 {
-    size_t line_number = 0;
+    size_t line_number = *counter;
     for (;;) {
         LineBuffer line;
         int result = read_line_fd(fd, &line);
         if (result == 0) {
+            *counter = line_number;
             return 0;
         }
         if (result < 0) {
+            *counter = line_number;
             return -1;
         }
         if (line_is_nonempty(&line)) {
@@ -222,11 +227,21 @@ static int print_range(int fd, off_t start, off_t end)
     return 0;
 }
 
-static int print_reverse_regular(int fd, off_t size, int numbered)
+/* Reverse numbering (Q33): the number stays tied to the line's original
+ * position, so this file's lines occupy *counter+1 .. *counter+count and
+ * are simply emitted highest-first. That is what turns two two-line files
+ * into 2,1,4,3 rather than 2,1,2,1. */
+static int print_reverse_regular(int fd, off_t size, int numbered,
+                                 size_t *counter)
 {
     size_t remaining_number = 0;
-    if (numbered && count_nonempty_regular_lines(fd, size, &remaining_number) != 0) {
-        return -1;
+    if (numbered) {
+        size_t file_lines = 0;
+        if (count_nonempty_regular_lines(fd, size, &file_lines) != 0) {
+            return -1;
+        }
+        remaining_number = *counter + file_lines;
+        *counter = remaining_number;
     }
 
     off_t end = size;
@@ -274,7 +289,7 @@ static int print_reverse_regular(int fd, off_t size, int numbered)
     return 0;
 }
 
-static int print_reverse_stream(int fd, int numbered)
+static int print_reverse_stream(int fd, int numbered, size_t *counter)
 {
     LineBuffer *lines = NULL;
     size_t count = 0;
@@ -317,6 +332,8 @@ static int print_reverse_stream(int fd, int numbered)
                 remaining_number++;
             }
         }
+        remaining_number += *counter;
+        *counter = remaining_number;
     }
 
     for (size_t index = count; index > 0; index--) {
@@ -340,20 +357,23 @@ static int print_reverse_stream(int fd, int numbered)
     return 0;
 }
 
-static int process_input_fd(int fd, int numbered, int reverse)
+static int process_input_fd(int fd, int numbered, int reverse, size_t *counter)
 {
     struct stat metadata;
     int regular = fstat(fd, &metadata) == 0 && S_ISREG(metadata.st_mode);
     if (reverse && regular) {
-        return print_reverse_regular(fd, metadata.st_size, numbered);
+        return print_reverse_regular(fd, metadata.st_size, numbered, counter);
     }
     if (reverse) {
-        return print_reverse_stream(fd, numbered);
+        return print_reverse_stream(fd, numbered, counter);
     }
-    return numbered ? print_stream(fd, 1) : copy_stream(fd);
+    /* Without -n there is nothing to count, so the fast whole-chunk copy
+     * needs no counter at all. */
+    return numbered ? print_stream(fd, 1, counter) : copy_stream(fd);
 }
 
-static int process_file(const char *filename, int numbered, int reverse)
+static int process_file(const char *filename, int numbered, int reverse,
+                        size_t *counter)
 {
     int fd;
     int close_after = 1;
@@ -377,7 +397,7 @@ static int process_file(const char *filename, int numbered, int reverse)
         }
     }
 
-    int result = process_input_fd(fd, numbered, reverse);
+    int result = process_input_fd(fd, numbered, reverse, counter);
     if (close_after) {
         close(fd);
     }
@@ -417,15 +437,18 @@ int peek_execute(const ShellState *state, const TokenList *tokens)
         }
     }
 
+    /* One running line counter for the whole command line, shared by every
+     * argument, so -n numbers carry over from one file to the next. */
+    size_t counter = 0;
     if (file_count == 0) {
-        (void)process_file("-", numbered, reverse);
+        (void)process_file("-", numbered, reverse, &counter);
         return 0;
     }
 
     for (size_t index = 1; index < tokens->count; index++) {
         const char *argument = tokens->items[index].value;
         if (argument[0] != '-' || argument[1] == '\0') {
-            (void)process_file(argument, numbered, reverse);
+            (void)process_file(argument, numbered, reverse, &counter);
         }
     }
     return 0;
