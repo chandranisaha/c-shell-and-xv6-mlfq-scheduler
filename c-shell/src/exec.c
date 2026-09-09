@@ -34,6 +34,25 @@ static int is_builtin_name(const char *name)
             strcmp(visible_name, "ping") == 0);
 }
 
+/* Runs a builtin in a forked child and returns the exit status to hand to
+ * _exit(). The fflush is the whole point: builtins print through stdio,
+ * and stdio is fully buffered (not line buffered) whenever stdout is a
+ * pipe or a file instead of a terminal. _exit() deliberately skips atexit
+ * handlers and stream flushing, so without this every builtin that prints
+ * via printf/fwrite - reveal, locate, peek -n - silently threw its whole
+ * output away the moment it was redirected or put in a pipeline, while
+ * peek's plain path survived only because it happens to use raw write().
+ * fflush(NULL) covers stdout and any other open stream; a failure here
+ * means the output never made it, so it has to be reported as failure. */
+static int run_builtin_child(ShellState *state, const CommandLine *command)
+{
+    BuiltinResult result = builtin_execute(state, command);
+    if (fflush(NULL) != 0) {
+        return 1;
+    }
+    return result == BUILTIN_HANDLED ? 0 : 1;
+}
+
 static CommandLine make_stage_command(const FlatCmd *command,
                                       Token *stage_tokens)
 {
@@ -277,9 +296,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
             _exit(0);
         }
         if (is_builtin_name(command->argv[0])) {
-            _exit(builtin_execute(state, &stage_command) == BUILTIN_HANDLED
-                      ? 0
-                      : 1);
+            _exit(run_builtin_child(state, &stage_command));
         }
         if (resolved_paths[index] == NULL) {
             fprintf(stderr, "cshell: command not found (%s)\n",
@@ -553,9 +570,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
             _exit(1);
         }
         if (command_is_builtin) {
-            _exit(builtin_execute(state, &first_command) == BUILTIN_HANDLED
-                      ? 0
-                      : 1);
+            _exit(run_builtin_child(state, &first_command));
         }
         execve(resolved_path, argv, environ);
         fprintf(stderr, "cshell: command not found (%s)\n",
