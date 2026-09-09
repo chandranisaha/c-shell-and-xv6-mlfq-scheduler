@@ -1,5 +1,6 @@
 #include "prompt.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -31,9 +32,23 @@ int prompt_print(const ShellState *state)
     char path[PATH_MAX + 2];
     if (getcwd(cwd, sizeof(cwd)) == NULL ||
         display_path(state, cwd, path, sizeof(path)) < 0 ||
-        printf("<%s@%s:%s> ", state->username, state->hostname, path) < 0 ||
-        fflush(stdout) != 0) {
+        printf("<%s@%s:%s> ", state->username, state->hostname, path) < 0) {
         return -1;
+    }
+
+    /* No signal handler in this shell uses SA_RESTART, so the write()
+     * behind this flush can come back EINTR whenever a child changes
+     * state at exactly the wrong moment (SIGCHLD from a job that was just
+     * resumed, say). That is transient, not fatal - retry it rather than
+     * letting main() decide the shell has failed and exit. The prompt has
+     * no trailing newline, so on a line-buffered terminal nothing has been
+     * written yet at this point and the unflushed bytes are still queued:
+     * retrying re-sends them once, never twice. */
+    while (fflush(stdout) != 0) {
+        if (errno != EINTR) {
+            return -1;
+        }
+        clearerr(stdout);
     }
 
     return 0;
