@@ -11,6 +11,7 @@
 typedef struct {
     char *name;
     int is_directory;
+    int is_symlink;
 } DirectoryEntry;
 
 static void free_entries(DirectoryEntry *entries, size_t count)
@@ -74,8 +75,13 @@ static int collect_entries(const char *directory, int show_hidden,
             return -1;
         }
 
+        /* lstat, not stat: stat() follows symlinks, so a symlink pointing
+         * at a directory would report S_ISDIR and `-t` would descend into
+         * the target - forever, if the link happens to form a cycle. Q42
+         * says a symlinked directory is listed but never descended into,
+         * which is exactly what lstat lets us tell apart. */
         struct stat metadata;
-        if (stat(full_path, &metadata) != 0) {
+        if (lstat(full_path, &metadata) != 0) {
             metadata.st_mode = 0;
         }
 
@@ -86,6 +92,7 @@ static int collect_entries(const char *directory, int show_hidden,
             return -1;
         }
         entries[count].is_directory = S_ISDIR(metadata.st_mode);
+        entries[count].is_symlink = S_ISLNK(metadata.st_mode);
         count++;
     }
 
@@ -110,10 +117,14 @@ static int reveal_directory(const char *directory, const char *display_prefix,
         /* Q27: the trailing "/" is a display aid for the recursive listing
          * only - a plain `reveal` prints bare names. Sorting already
          * compares bare names either way (Q19). */
-        printf("%s%s%s\n", display_prefix, entry->name,
+        /* Q30: a name containing a space is single-quoted, the way ls
+         * does it. Only the name itself is quoted - the recursive path
+         * prefix and the display slash stay outside, matching `ls -F`. */
+        const char *quote = strchr(entry->name, ' ') != NULL ? "'" : "";
+        printf("%s%s%s%s%s\n", display_prefix, quote, entry->name, quote,
                (recursive && entry->is_directory) ? "/" : "");
 
-        if (recursive && entry->is_directory) {
+        if (recursive && entry->is_directory && !entry->is_symlink) {
             char child_path[PATH_MAX * 2];
             char child_prefix[PATH_MAX * 2];
             int path_written = snprintf(child_path, sizeof(child_path), "%s/%s",
@@ -159,7 +170,7 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
             /* Q18: the grammar is `reveal (-(a|t)*)* (~|.|..|-|name)?`,
              * so every flag has to come before the path. */
             if (positional_count > 0) {
-                printf("reveal: invalid syntax\n");
+                fprintf(stderr, "reveal: invalid syntax\n");
                 return 0;
             }
             for (size_t flag = 1; argument[flag] != '\0'; flag++) {
@@ -168,14 +179,14 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
                 } else if (argument[flag] == 't') {
                     recursive = 1;
                 } else {
-                    printf("reveal: invalid syntax\n");
+                    fprintf(stderr, "reveal: invalid syntax\n");
                     return 0;
                 }
             }
         } else {
             positional_count++;
             if (positional_count > 1) {
-                printf("reveal: invalid syntax\n");
+                fprintf(stderr, "reveal: invalid syntax\n");
                 return 0;
             }
             target = argument;
@@ -185,12 +196,12 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
     char directory[PATH_MAX];
     if (resolve_path(state, target, directory, sizeof(directory)) !=
         PATH_RESOLVE_SUCCESS) {
-        printf("reveal: no such directory\n");
+        fprintf(stderr, "reveal: no such directory\n");
         return 0;
     }
 
     if (reveal_directory(directory, "", show_hidden, recursive) != 0) {
-        printf("reveal: no such directory\n");
+        fprintf(stderr, "reveal: no such directory\n");
     }
     return 0;
 }
