@@ -156,6 +156,12 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
 
         const char *argument = tokens->items[index].value;
         if (argument[0] == '-' && argument[1] != '\0') {
+            /* Q18: the grammar is `reveal (-(a|t)*)* (~|.|..|-|name)?`,
+             * so every flag has to come before the path. */
+            if (positional_count > 0) {
+                printf("reveal: invalid syntax\n");
+                return 0;
+            }
             for (size_t flag = 1; argument[flag] != '\0'; flag++) {
                 if (argument[flag] == 'a') {
                     show_hidden = 1;
