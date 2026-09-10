@@ -684,6 +684,44 @@ scheduler(void)
       c->proc = 0;
     }
     release(&best->lock);
+#elif defined(FIFO)
+    // first come first served: run whichever runnable process arrived
+    // earliest and, with the timer yield disabled in trap.c, let it run to
+    // completion. enter_seq is exactly arrival order here -- nothing
+    // reassigns it outside MLFQ, so it stays as allocproc() handed it out.
+    struct proc *best = 0;
+    uint64 best_seq = 0;
+
+    for (p = proc; p < &proc[NPROC]; p++) {
+      if (p->state != RUNNABLE)
+        continue;
+      acquire(&p->lock);
+      if (p->state == RUNNABLE && (best == 0 || p->enter_seq < best_seq)) {
+        best = p;
+        best_seq = p->enter_seq;
+      }
+      release(&p->lock);
+    }
+
+    if (best == 0) {
+      asm volatile("wfi");
+      continue;
+    }
+
+    acquire(&best->lock);
+    if (best->state == RUNNABLE) {
+      if (best->first_run < 0)
+        best->first_run = ticks;
+      best->state = RUNNING;
+      c->proc = best;
+      swtch(&c->context, &best->context);
+
+      // Don't re-enable interrupts on release.
+      mycpu()->intena = 0;
+
+      c->proc = 0;
+    }
+    release(&best->lock);
 #else
     int found = 0;
     for (p = proc; p < &proc[NPROC]; p++) {

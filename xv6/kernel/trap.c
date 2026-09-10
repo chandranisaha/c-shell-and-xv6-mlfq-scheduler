@@ -87,6 +87,9 @@ usertrap(void)
   // rather than being bounced on every single tick.
   if (which_dev == 2 && mlfq_tick())
     yield();
+#elif defined(FIFO)
+  // fifo is non-preemptive: a process runs until it blocks or exits, so the
+  // timer must not take the cpu away from it.
 #else
   if (which_dev == 2)
     yield();
@@ -164,6 +167,8 @@ kerneltrap()
 #ifdef MLFQ
   if (which_dev == 2 && myproc() != 0 && mlfq_tick())
     yield();
+#elif defined(FIFO)
+  // see usertrap(): fifo does not preempt on the timer.
 #else
   if (which_dev == 2 && myproc() != 0)
     yield();
