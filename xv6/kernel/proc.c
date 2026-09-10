@@ -85,6 +85,41 @@ mlfq_boost(void)
 #endif
 
 #ifdef MLFQ
+// Is anything runnable in a strictly better queue than `queue`? Used to
+// honour strict priority at tick boundaries. Must not be called with any
+// p->lock held -- the scan takes every one of them in turn, including the
+// caller's own.
+static int
+mlfq_higher_waiting(int queue)
+{
+  struct proc *p;
+
+  // nothing can outrank queue 0, so skip the scan entirely for the common
+  // case of a process that is already at the top.
+  if (queue <= 0)
+    return 0;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    // unlocked pre-filter. most of the 64 slots are never RUNNABLE, and
+    // taking every p->lock once per tick per cpu is a lot of traffic on the
+    // busiest lock in the kernel. a stale read here is harmless: the real
+    // check below is done under the lock, and the worst case is missing a
+    // preemption for one tick, which the spec explicitly permits.
+    if (p->state != RUNNABLE)
+      continue;
+
+    acquire(&p->lock);
+    int better = (p->state == RUNNABLE && p->queue < queue);
+    release(&p->lock);
+    if (better)
+      return 1;
+  }
+
+  return 0;
+}
+#endif
+
+#ifdef MLFQ
 // Called from the timer trap, after update_time() has already charged this
 // tick. Returns 1 if the process on this cpu should give up. A process that
 // has burnt its whole slice drops one queue -- or, if it is already in the
@@ -96,12 +131,18 @@ mlfq_tick(void)
 {
   struct proc *p = myproc();
   int give_up = 0;
+  int queue;
 
   if (p == 0)
     return 0;
 
   acquire(&p->lock);
-  if (p->state == RUNNING && p->slice_used >= mlfq_slice(p->queue)) {
+  if (p->state != RUNNING) {
+    release(&p->lock);
+    return 0;
+  }
+  queue = p->queue;
+  if (p->slice_used >= mlfq_slice(queue)) {
     if (p->queue < NQUEUE - 1)
       p->queue++;
     p->slice_used = 0;
@@ -109,6 +150,14 @@ mlfq_tick(void)
     give_up = 1;
   }
   release(&p->lock);
+
+  // Strict priority, the other half of spec rule 2: something better turned
+  // up while we were running, so step aside at this tick boundary. Note it
+  // keeps both its queue and its part-burnt slice -- being interrupted by an
+  // unrelated higher-priority arrival is not the process's fault, and the
+  // rules only demote a process whose slice is actually spent.
+  if (!give_up && mlfq_higher_waiting(queue))
+    give_up = 1;
 
   return give_up;
 }
@@ -127,6 +176,13 @@ update_time(void)
   struct proc *p;
 
   for (p = proc; p < &proc[NPROC]; p++) {
+    // unlocked pre-filter, same reasoning as mlfq_higher_waiting(): only
+    // RUNNING and RUNNABLE processes are charged anything, and taking all
+    // 64 locks every tick contends badly with the scheduler's own scan.
+    // Re-checked under the lock below.
+    if (p->state != RUNNING && p->state != RUNNABLE)
+      continue;
+
     acquire(&p->lock);
     if (p->state == RUNNING) {
       p->rtime++;
