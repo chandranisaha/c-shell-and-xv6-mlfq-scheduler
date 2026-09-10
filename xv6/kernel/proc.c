@@ -478,6 +478,51 @@ scheduler(void)
     intr_on();
     intr_off();
 
+#ifdef MLFQ
+    // strict priority: the best candidate is the runnable process in the
+    // lowest-numbered queue, and among those the one that has been waiting
+    // longest, which is the smallest enter_seq. one pass to find it, then a
+    // second acquire to actually run it.
+    struct proc *best = 0;
+    int best_queue = 0;
+    uint64 best_seq = 0;
+
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        if (best == 0 || p->queue < best_queue ||
+            (p->queue == best_queue && p->enter_seq < best_seq)) {
+          best = p;
+          best_queue = p->queue;
+          best_seq = p->enter_seq;
+        }
+      }
+      release(&p->lock);
+    }
+
+    if (best == 0) {
+      // nothing to run; stop running on this core until an interrupt.
+      asm volatile("wfi");
+      continue;
+    }
+
+    acquire(&best->lock);
+    // another core may have grabbed or killed it while we were scanning, so
+    // the state has to be rechecked now that the lock is actually held.
+    if (best->state == RUNNABLE) {
+      if (best->first_run < 0)
+        best->first_run = ticks;
+      best->state = RUNNING;
+      c->proc = best;
+      swtch(&c->context, &best->context);
+
+      // Don't re-enable interrupts on release.
+      mycpu()->intena = 0;
+
+      c->proc = 0;
+    }
+    release(&best->lock);
+#else
     int found = 0;
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -503,6 +548,7 @@ scheduler(void)
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }
+#endif
   }
 }
 
