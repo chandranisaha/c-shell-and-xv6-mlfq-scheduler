@@ -32,6 +32,30 @@ alloc_enter_seq(void)
   return seq;
 }
 
+// Called once per tick from clockintr(). Keeps the running and ready-queue
+// totals the report's comparison needs, and burns down the slice of whatever
+// is currently on a cpu. Compiled into every build, not just MLFQ, because
+// the comparison in 2.2 needs the same numbers out of plain round-robin --
+// it only writes bookkeeping fields, so no scheduling decision changes.
+// Safe to take p->lock here: acquire() turns interrupts off, so a cpu can
+// never be inside clockintr() while already holding one.
+void
+update_time(void)
+{
+  struct proc *p;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNING) {
+      p->rtime++;
+      p->slice_used++;
+    } else if (p->state == RUNNABLE) {
+      p->wtime++;
+    }
+    release(&p->lock);
+  }
+}
+
 extern void forkret(void);
 static void freeproc(struct proc *p);
 

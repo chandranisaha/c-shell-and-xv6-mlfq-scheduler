@@ -171,6 +171,10 @@ clockintr()
     ticks++;
     wakeup(&ticks);
     release(&tickslock);
+
+    // one tick has passed for every process in the system, so account for
+    // it exactly once, here on cpu 0, rather than once per core.
+    update_time();
   }
 
   // ask for the next timer interrupt. this also clears
