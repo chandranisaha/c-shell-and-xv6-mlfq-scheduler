@@ -15,6 +15,23 @@ struct proc *initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
+// Rather than four real linked lists, a process carries its queue number and
+// a ticket taken from this counter. "Push to the tail of queue q" is then just
+// "set queue = q and take a fresh ticket", and picking the next process to run
+// is "lowest queue, and among those the lowest ticket". That is exact FIFO
+// order inside every queue without a second lock to get wrong.
+uint64 next_enter_seq = 1;
+struct spinlock seq_lock;
+
+uint64
+alloc_enter_seq(void)
+{
+  acquire(&seq_lock);
+  uint64 seq = next_enter_seq++;
+  release(&seq_lock);
+  return seq;
+}
+
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
@@ -51,6 +68,7 @@ procinit(void)
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&seq_lock, "enter_seq");
   for (p = proc; p < &proc[NPROC]; p++) {
     initlock(&p->lock, "proc");
     p->state = UNUSED;
@@ -125,6 +143,16 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // every new process starts at the tail of queue 0, per the mlfq rules.
+  p->queue = 0;
+  p->slice_used = 0;
+  p->enter_seq = alloc_enter_seq();
+  p->ctime = ticks;
+  p->etime = 0;
+  p->rtime = 0;
+  p->wtime = 0;
+  p->first_run = -1;
+
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -168,6 +196,14 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->queue = 0;
+  p->slice_used = 0;
+  p->enter_seq = 0;
+  p->ctime = 0;
+  p->etime = 0;
+  p->rtime = 0;
+  p->wtime = 0;
+  p->first_run = -1;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -356,6 +392,7 @@ kexit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+  p->etime = ticks; // an exiting process leaves the queuing system
 
   release(&wait_lock);
 

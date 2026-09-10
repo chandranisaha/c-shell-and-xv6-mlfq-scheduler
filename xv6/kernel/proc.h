@@ -101,4 +101,14 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // scheduling bookkeeping. p->lock must be held for these, same as state.
+  int queue;        // MLFQ priority, 0 (highest) to 3 (lowest)
+  int slice_used;   // ticks burnt out of this queue's slice
+  uint64 enter_seq; // position within the queue; smaller means nearer the head
+  int ctime;        // tick this process was created on
+  int etime;        // tick it exited on, 0 while still alive
+  int rtime;        // ticks spent RUNNING
+  int wtime;        // ticks spent RUNNABLE, i.e. sat in the ready queue
+  int first_run;    // tick it first got the cpu, -1 until then
 };
