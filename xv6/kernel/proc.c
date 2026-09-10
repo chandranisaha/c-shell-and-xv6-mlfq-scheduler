@@ -46,6 +46,19 @@ alloc_enter_seq(void)
 }
 
 #ifdef MLFQ
+// Spec rule 5: a process that gave the cpu up on its own left the queuing
+// network, and when it becomes runnable again it goes to the tail of the
+// *same* queue it left from -- priority unchanged, just back of the line.
+// A fresh ticket is exactly that. p->lock must be held.
+static void
+mlfq_requeue(struct proc *p)
+{
+  p->slice_used = 0;
+  p->enter_seq = alloc_enter_seq();
+}
+#endif
+
+#ifdef MLFQ
 // Called from the timer trap, after update_time() has already charged this
 // tick. Returns 1 if the process on this cpu should give up. A process that
 // has burnt its whole slice drops one queue -- or, if it is already in the
@@ -739,6 +752,9 @@ wakeup(void *chan)
       // go to sleep, also set it back to RUNNING.
       if (p->state == SLEEPING) {
         p->state = RUNNABLE;
+#ifdef MLFQ
+        mlfq_requeue(p);
+#endif
       }
     }
     release(&p->lock);
@@ -760,6 +776,9 @@ kkill(int pid)
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
+#ifdef MLFQ
+        mlfq_requeue(p);
+#endif
       }
       release(&p->lock);
       return 0;
