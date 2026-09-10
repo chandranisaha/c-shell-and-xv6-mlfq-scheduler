@@ -88,6 +88,14 @@ ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
 CFLAGS += -fno-pie -nopie
 endif
 
+# which scheduling policy to compile in. leaving SCHEDULER unset builds the
+# stock round-robin path untouched, which is what the writeup asks for as the
+# default. SCHEDULER=MLFQ or SCHEDULER=FIFO defines that name for the #ifdefs
+# in proc.c and trap.c.
+ifdef SCHEDULER
+CFLAGS += -D$(SCHEDULER)
+endif
+
 LDFLAGS = -z max-page-size=4096
 
 $K/kernel: $(OBJS) $K/kernel.ld
