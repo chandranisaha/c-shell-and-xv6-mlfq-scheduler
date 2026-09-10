@@ -187,6 +187,12 @@ clockintr()
     // one tick has passed for every process in the system, so account for
     // it exactly once, here on cpu 0, rather than once per core.
     update_time();
+
+#ifdef MLFQ
+    // ticks was just incremented, so this fires on tick 48, 96, 144...
+    if (ticks % BOOST_INTERVAL == 0)
+      mlfq_boost();
+#endif
   }
 
   // ask for the next timer interrupt. this also clears

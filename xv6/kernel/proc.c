@@ -59,6 +59,32 @@ mlfq_requeue(struct proc *p)
 #endif
 
 #ifdef MLFQ
+// Spec rule 7, the anti-starvation boost: every BOOST_INTERVAL ticks every
+// process in the system goes back to queue 0, whatever it was doing. Called
+// from clockintr() on cpu 0 only, so it fires once per interval rather than
+// once per core.
+//
+// Tickets are left alone on purpose. Everything lands in queue 0 together,
+// so relative order among them is decided entirely by the tickets they
+// already hold -- which means whoever had been waiting longest still gets
+// served first, instead of the boost silently reshuffling the queue.
+void
+mlfq_boost(void)
+{
+  struct proc *p;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state != UNUSED && p->state != ZOMBIE) {
+      p->queue = 0;
+      p->slice_used = 0;
+    }
+    release(&p->lock);
+  }
+}
+#endif
+
+#ifdef MLFQ
 // Called from the timer trap, after update_time() has already charged this
 // tick. Returns 1 if the process on this cpu should give up. A process that
 // has burnt its whole slice drops one queue -- or, if it is already in the

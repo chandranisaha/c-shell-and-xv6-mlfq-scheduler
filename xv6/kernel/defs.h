@@ -106,6 +106,7 @@ void            procdump(void);
 uint64          alloc_enter_seq(void);
 int             mlfq_slice(int);
 int             mlfq_tick(void);
+void            mlfq_boost(void);
 void            update_time(void);
 
 // swtch.S
