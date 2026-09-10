@@ -2,3 +2,12 @@
 # platform is - a Makefile or linker script with carriage returns in it will
 # not build.
 xv6/** text eol=lf
+
+# ...but that rule must not touch binaries. Git was silently applying CRLF
+# conversion to the report figures and eating a byte out of each png. These
+# come after the rule above so they win.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.zip binary
+*.img binary
