@@ -23,6 +23,19 @@ struct spinlock pid_lock;
 uint64 next_enter_seq = 1;
 struct spinlock seq_lock;
 
+// ticks a process may run for before it drops a queue, indexed by queue.
+static const int mlfq_slices[NQUEUE] = {1, 4, 8, 16};
+
+int
+mlfq_slice(int queue)
+{
+  if (queue < 0)
+    queue = 0;
+  if (queue >= NQUEUE)
+    queue = NQUEUE - 1;
+  return mlfq_slices[queue];
+}
+
 uint64
 alloc_enter_seq(void)
 {
@@ -803,6 +816,14 @@ procdump(void)
     else
       state = "???";
     printk("%d %s %s", p->pid, state, p->name);
+#ifdef MLFQ
+    // everything needed to check the rules by eye: which queue it sits in,
+    // how much of that queue's slice it has burnt, and how long until the
+    // next boost drags it back to queue 0.
+    printk("  q%d slice %d/%d seq %d  run %d wait %d  boost in %d", p->queue,
+           p->slice_used, mlfq_slice(p->queue), (int)p->enter_seq, p->rtime,
+           p->wtime, BOOST_INTERVAL - (int)(ticks % BOOST_INTERVAL));
+#endif
     printk("\n");
   }
 }
