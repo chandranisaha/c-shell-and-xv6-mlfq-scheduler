@@ -36,6 +36,23 @@ sys_wait(void)
   return kwait(p);
 }
 
+// waitx(int *turnaround, int *waiting, int *response, int *running) -- like
+// wait(), but reports how the reaped child spent its life, for the scheduler
+// comparison in 2.2. Exit status is not returned; callers that need it use
+// wait() instead.
+uint64
+sys_waitx(void)
+{
+  uint64 taddr, waddr, rspaddr, runaddr;
+
+  argaddr(0, &taddr);
+  argaddr(1, &waddr);
+  argaddr(2, &rspaddr);
+  argaddr(3, &runaddr);
+
+  return kwaitx(taddr, waddr, rspaddr, runaddr);
+}
+
 uint64
 sys_sbrk(void)
 {

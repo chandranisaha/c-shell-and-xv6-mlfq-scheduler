@@ -563,10 +563,18 @@ kexit(int status)
   panic("zombie exit");
 }
 
-// Wait for a child process to exit and return its pid.
-// Return -1 if this process has no children.
-int
-kwait(uint64 addr)
+// Wait for a child to exit, and optionally report how it spent its life:
+// the three metrics 2.2 asks for (turnaround, waiting, response) plus the
+// running total as a sanity check. Each address may be 0 to skip it, and
+// kwait() is just this with all of them omitted, so there is exactly one
+// copy of the reaping logic.
+//
+// The statistics must be copied out BEFORE freeproc(), which zeroes every
+// field on the proc as it recycles the slot. Reaping first and reading after
+// returns zeros, silently.
+static int
+kwait_stats(uint64 addr, uint64 taddr, uint64 waddr, uint64 rspaddr,
+            uint64 runaddr)
 {
   struct proc *pp;
   int havekids, pid;
@@ -593,6 +601,30 @@ kwait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
+
+          // read the statistics out while the proc is still intact
+          int turnaround = pp->etime - pp->ctime;
+          int waiting = pp->wtime;
+          int running = pp->rtime;
+          // -1 if it somehow exited without ever reaching a cpu
+          int response = pp->first_run >= 0 ? pp->first_run - pp->ctime : -1;
+
+          if ((taddr != 0 && copyout(p->pagetable, p->sz, taddr,
+                                     (char *)&turnaround,
+                                     sizeof(turnaround)) < 0) ||
+              (waddr != 0 && copyout(p->pagetable, p->sz, waddr,
+                                     (char *)&waiting, sizeof(waiting)) < 0) ||
+              (rspaddr != 0 && copyout(p->pagetable, p->sz, rspaddr,
+                                       (char *)&response,
+                                       sizeof(response)) < 0) ||
+              (runaddr != 0 && copyout(p->pagetable, p->sz, runaddr,
+                                       (char *)&running,
+                                       sizeof(running)) < 0)) {
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
           pp->parent = 0;
           freeproc(pp);
           release(&pp->lock);
@@ -615,6 +647,18 @@ kwait(uint64 addr)
     sleep();
     acquire(&wait_lock);
   }
+}
+
+int
+kwait(uint64 addr)
+{
+  return kwait_stats(addr, 0, 0, 0, 0);
+}
+
+int
+kwaitx(uint64 taddr, uint64 waddr, uint64 rspaddr, uint64 runaddr)
+{
+  return kwait_stats(0, taddr, waddr, rspaddr, runaddr);
 }
 
 // Per-CPU process scheduler.
