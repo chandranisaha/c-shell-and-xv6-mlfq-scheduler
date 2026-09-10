@@ -82,8 +82,15 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
+#ifdef MLFQ
+  // under mlfq a process keeps the cpu until its slice is actually spent,
+  // rather than being bounced on every single tick.
+  if (which_dev == 2 && mlfq_tick())
+    yield();
+#else
   if (which_dev == 2)
     yield();
+#endif
 
   prepare_return();
 
@@ -154,8 +161,13 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
+#ifdef MLFQ
+  if (which_dev == 2 && myproc() != 0 && mlfq_tick())
+    yield();
+#else
   if (which_dev == 2 && myproc() != 0)
     yield();
+#endif
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

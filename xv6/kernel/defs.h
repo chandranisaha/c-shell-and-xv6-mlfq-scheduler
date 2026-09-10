@@ -105,6 +105,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 uint64          alloc_enter_seq(void);
 int             mlfq_slice(int);
+int             mlfq_tick(void);
 void            update_time(void);
 
 // swtch.S

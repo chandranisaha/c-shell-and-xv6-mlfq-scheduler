@@ -45,6 +45,36 @@ alloc_enter_seq(void)
   return seq;
 }
 
+#ifdef MLFQ
+// Called from the timer trap, after update_time() has already charged this
+// tick. Returns 1 if the process on this cpu should give up. A process that
+// has burnt its whole slice drops one queue -- or, if it is already in the
+// bottom queue, just goes to the back of that one, which is what makes
+// queue 3 round-robin -- and starts a fresh slice at the tail of wherever it
+// lands.
+int
+mlfq_tick(void)
+{
+  struct proc *p = myproc();
+  int give_up = 0;
+
+  if (p == 0)
+    return 0;
+
+  acquire(&p->lock);
+  if (p->state == RUNNING && p->slice_used >= mlfq_slice(p->queue)) {
+    if (p->queue < NQUEUE - 1)
+      p->queue++;
+    p->slice_used = 0;
+    p->enter_seq = alloc_enter_seq();
+    give_up = 1;
+  }
+  release(&p->lock);
+
+  return give_up;
+}
+#endif
+
 // Called once per tick from clockintr(). Keeps the running and ready-queue
 // totals the report's comparison needs, and burns down the slice of whatever
 // is currently on a cpu. Compiled into every build, not just MLFQ, because
