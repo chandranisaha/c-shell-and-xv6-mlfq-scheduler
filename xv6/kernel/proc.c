@@ -190,6 +190,15 @@ update_time(void)
     } else if (p->state == RUNNABLE) {
       p->wtime++;
     }
+#if defined(MLFQ) && defined(MLFQTRACE)
+    // one sample per tick per process that is actually in the queuing
+    // network, which is exactly what the timeline plot needs: tick on x,
+    // queue on y, one colour per pid. built only with TRACE=1 so a normal
+    // kernel is not slowed down by console i/o inside the timer interrupt.
+    if (p->state == RUNNING || p->state == RUNNABLE)
+      printk("MLFQTRACE %d %d %d %d\n", ticks, p->pid, p->queue,
+             p->state == RUNNING ? 1 : 0);
+#endif
     release(&p->lock);
   }
 }

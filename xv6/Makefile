@@ -96,6 +96,13 @@ ifdef SCHEDULER
 CFLAGS += -D$(SCHEDULER)
 endif
 
+# TRACE=1 makes an MLFQ kernel print one line per tick per active process,
+# which plot_mlfq.py turns into the queue timeline for the report. Off by
+# default: it does console i/o from inside the timer interrupt.
+ifdef TRACE
+CFLAGS += -DMLFQTRACE
+endif
+
 LDFLAGS = -z max-page-size=4096
 
 $K/kernel: $(OBJS) $K/kernel.ld
