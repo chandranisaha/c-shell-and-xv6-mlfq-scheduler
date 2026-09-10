@@ -1,0 +1,4 @@
+# xv6 gets built under WSL, so keep its tree LF no matter what the checkout
+# platform is - a Makefile or linker script with carriage returns in it will
+# not build.
+xv6/** text eol=lf

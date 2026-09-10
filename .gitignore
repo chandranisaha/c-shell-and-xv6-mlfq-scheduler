@@ -2,3 +2,13 @@ c-shell/build/
 c-shell/shell.out
 *.o
 .cshell_frecency
+
+# xv6 build output
+*.d
+*.asm
+*.sym
+*.img
+xv6/user/_*
+xv6/user/usys.S
+xv6/kernel/kernel
+xv6/mkfs/mkfs
