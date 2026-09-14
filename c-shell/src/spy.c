@@ -10,6 +10,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* Plenty for any process we are likely to look at, and bounded so the
+ * descriptor list can live on the stack. */
+#define OPEN_MAX_GUESS 4096
+
 /* Same strict integer parser as ping.c and resume.c: at least one digit,
  * no sign, no trailing junk, no overflow. */
 static bool parse_non_negative_long(const char *text, long *out)
@@ -90,6 +94,60 @@ static bool read_proc_link(const char *proc_path, char *out, size_t size)
     return true;
 }
 
+static int descriptor_compare(const void *left, const void *right)
+{
+    long a = *(const long *)left;
+    long b = *(const long *)right;
+
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+/* Numeric descriptors, ascending. readdir() hands them back in whatever
+ * order the filesystem likes, so they are collected and sorted rather than
+ * printed as they arrive - "0, 1, 2" in the writeup's example is clearly
+ * meant to be in order. */
+static void print_descriptors(long pid)
+{
+    char dir_path[PATH_MAX];
+
+    snprintf(dir_path, sizeof(dir_path), "/proc/%ld/fd", pid);
+
+    DIR *handle = opendir(dir_path);
+    if (handle == NULL) {
+        return;
+    }
+
+    long numbers[OPEN_MAX_GUESS];
+    size_t count = 0;
+    struct dirent *entry;
+
+    while ((entry = readdir(handle)) != NULL && count < OPEN_MAX_GUESS) {
+        long number;
+        if (parse_non_negative_long(entry->d_name, &number)) {
+            numbers[count++] = number;
+        }
+    }
+    closedir(handle);
+
+    qsort(numbers, count, sizeof(*numbers), descriptor_compare);
+
+    for (size_t index = 0; index < count; index++) {
+        char proc_path[PATH_MAX];
+        char target[PATH_MAX];
+        char label[32];
+
+        snprintf(proc_path, sizeof(proc_path), "/proc/%ld/fd/%ld", pid,
+                 numbers[index]);
+        /* The descriptor can be gone by now - opendir() itself used one,
+         * and the process is running while we look at it. */
+        if (!read_proc_link(proc_path, target, sizeof(target))) {
+            continue;
+        }
+        snprintf(label, sizeof(label), "%ld", numbers[index]);
+        print_row(pid, label, type_of_proc_entry(proc_path), target);
+    }
+}
+
 static bool process_exists(long pid)
 {
     char path[PATH_MAX];
@@ -145,6 +203,8 @@ int spy_execute(const ShellState *state, const TokenList *tokens)
     if (read_proc_link(proc_path, target, sizeof(target))) {
         print_row(pid, "txt", type_of_proc_entry(proc_path), target);
     }
+
+    print_descriptors(pid);
 
     return 0;
 }
