@@ -24,6 +24,7 @@ struct ShellState {
     Job *jobs;
     int next_job_number;
     pid_t shell_pgid;
+    pid_t shell_pid;
     pid_t foreground_pgid;
     int terminal_fd;
 };

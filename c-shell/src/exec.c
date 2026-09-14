@@ -31,7 +31,8 @@ static int is_builtin_name(const char *name)
             strcmp(visible_name, "locate") == 0 ||
             strcmp(visible_name, "activities") == 0 ||
             strcmp(visible_name, "resume") == 0 ||
-            strcmp(visible_name, "ping") == 0);
+            strcmp(visible_name, "ping") == 0 ||
+            strcmp(visible_name, "spy") == 0);
 }
 
 /* Runs a builtin in a forked child and returns the exit status to hand to

@@ -31,6 +31,7 @@ int shell_state_init(ShellState *state)
     state->jobs = NULL;
     state->next_job_number = 1;
     state->shell_pgid = getpgrp();
+    state->shell_pid = getpid();
     state->foreground_pgid = 0;
     state->terminal_fd = STDIN_FILENO;
 
