@@ -416,9 +416,19 @@ created as `c-shell/shell.out`. `make test` runs the A3 grammar unit tests.
 For xv6 you need a RISC-V cross-compiler and `qemu-system-riscv64`:
 
 ```bash
-sudo apt install gcc-riscv64-unknown-elf qemu-system-misc
+sudo apt install gcc-riscv64-unknown-elf qemu-system-riscv
 cd /mnt/c/Users/CHANDRANI/Downloads/mini-project1/xv6
 make clean && make qemu SCHEDULER=MLFQ
 ```
+
+Note the package is `qemu-system-riscv`, not the `qemu-system-misc` that
+older xv6 instructions name — recent Ubuntu releases split RISC-V out into
+its own package, and `qemu-system-misc` no longer ships
+`qemu-system-riscv64`.
+
+`make clean` between policies is required: the `-D$(SCHEDULER)` macro is not
+tracked by make's dependency rules, so stale object files would be reused
+and you would silently run the previous scheduler. There is no `make all`
+target — `make` builds the kernel, `make qemu` builds and boots it.
 
 Ctrl-P dumps the process table, Ctrl-A then X quits QEMU.
