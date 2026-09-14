@@ -4,7 +4,6 @@
 #include "shell.h"
 #include "token.h"
 
-/* Syntax: ping <target> <signal_number> */
 int ping_execute(ShellState *state, const TokenList *tokens);
 
 #endif

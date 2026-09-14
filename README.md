@@ -118,6 +118,26 @@ Implemented shell features:
   exists on the system is reported as `ping: no such process found`. The
   success message always echoes the originally typed numbers verbatim, not
   the reduced signal value.
+- F1: `spy [pid]` lists a process's open files the way `lsof` does, reading
+  `/proc`. Rows come out in the order the writeup's example shows: `cwd`,
+  `txt` (the executable), one `mem` row per **unique** memory-mapped file,
+  then numeric descriptors ascending. `maps` carries one line per segment,
+  so each library appears four or five times and has to be deduplicated;
+  the executable is excluded from `mem` because it is already listed as
+  `txt`. Types come from `stat()` on the `/proc` entry rather than on the
+  resolved string, which is what makes a pipe report `FIFO` even though
+  `pipe:[171837]` is not a path. With no argument it reports the shell
+  itself, using a pid recorded at startup so the answer does not change
+  when the builtin runs in a forked child because of redirection or a
+  pipeline.
+- F2: `snoop command [args...]` forks, calls `PTRACE_TRACEME` in the child
+  and `execve`s; `snoop -p pid` uses `PTRACE_ATTACH`. Either way the tracer
+  loops on `PTRACE_SYSCALL`, timing each call from its entry stop to its
+  exit stop with `CLOCK_MONOTONIC`, and prints a summary sorted by call
+  count with ties broken by first occurrence. Syscalls outside the name
+  table print as `syscall_N`, as the spec requires. Calls are counted at
+  *entry*, so `exit_group` — which never returns — still appears once with
+  0.000s, matching the writeup's example.
 
 ## Architecture and design choices
 

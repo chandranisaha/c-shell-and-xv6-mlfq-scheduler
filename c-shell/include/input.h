@@ -11,7 +11,6 @@ typedef enum {
 
 typedef struct ShellState ShellState;
 
-/* Allocates one input line. The caller owns *line after INPUT_LINE. */
 InputResult input_read_line(char **line, ShellState *state);
 
 #endif

@@ -13,9 +13,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Parses a non-negative base-10 integer with no sign, no leading/trailing
- * junk, and at least one digit. Returns false (leaving *out untouched) on
- * anything else, including overflow. */
 static bool parse_non_negative_long(const char *text, long *out)
 {
     if (text == NULL || text[0] == '\0') {
@@ -40,11 +37,6 @@ static void mark_job_running(Job *job)
     }
 }
 
-/* Waits on every not-yet-exited process in `job` with WUNTRACED, updating
- * tracked status as each one changes. If `timeout_seconds >= 0`, arms
- * alarm() first and sends SIGTERM to the whole job on expiry, reporting
- * that back via *timed_out. Reclaims nothing and prints nothing itself -
- * the caller owns the terminal handoff and all user-facing messages. */
 static bool wait_for_job(Job *job, long timeout_seconds, bool *timed_out,
                          bool *any_signaled)
 {
@@ -54,8 +46,7 @@ static bool wait_for_job(Job *job, long timeout_seconds, bool *timed_out,
     *any_signaled = false;
 
     if (use_timeout && timeout_seconds == 0) {
-        /* alarm(0) cancels a timer instead of firing immediately, so a
-         * zero-second timeout has to be handled as an instant expiry. */
+
         (void)kill(-job->pgid, SIGTERM);
         *timed_out = true;
         use_timeout = false;
@@ -193,12 +184,12 @@ int resume_execute(ShellState *state, const TokenList *tokens)
     }
 
     if (any_stopped) {
-        /* move past the "^Z" the tty echoed with no newline of its own */
+
         putchar('\n');
         printf("[%d] + Stopped    %s\n", job->job_number, job->command_line);
         fflush(stdout);
     } else if (any_signaled) {
-        /* same for "^C", so the next prompt starts on a fresh line */
+
         putchar('\n');
         fflush(stdout);
         if (job_is_finished(job)) {

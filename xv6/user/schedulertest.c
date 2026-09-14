@@ -1,12 +1,3 @@
-// Workload generator and measurement harness for the scheduler comparison.
-// Spawns a fixed mix of cpu-bound children (which sink through the queues
-// under MLFQ) and io-bound children (which sleep before their slice runs out
-// and so keep their priority), then reports the three metrics 2.2 asks for.
-//
-//   schedulertest [nproc] [work]
-//
-// The same nproc/work must be used for every scheduler, or the comparison is
-// meaningless. Hit ctrl-p while it runs to watch the queues move.
 
 #include "kernel/types.h"
 #include "kernel/stat.h"
@@ -16,9 +7,6 @@
 #define DEFAULT_WORK  40
 #define INNER         2000000
 
-// Spin for roughly `units` bursts of cpu work. volatile so that -O cannot
-// notice the result is unused and delete the whole loop, which would quietly
-// turn the cpu-bound children into no-ops.
 static void
 burn(int units)
 {
@@ -29,7 +17,6 @@ burn(int units)
       sink += i;
 }
 
-// xv6's printf has no %f, so averages are printed as hundredths by hand.
 static void
 print_avg(char *label, int total, int n)
 {
@@ -62,17 +49,10 @@ main(int argc, char *argv[])
 
     if (pid == 0) {
       if (i % 2 == 0) {
-        // cpu bound: never gives the cpu up voluntarily
+
         burn(work);
       } else {
-        // io bound: short burst, then block. each burst is meant to be
-        // shorter than the queue-0 slice, so priority should be kept.
-        //
-        // Deliberately fewer cycles than the cpu-bound children get burn
-        // units: each cycle costs a whole tick of sleeping, so matching
-        // them one-for-one would make these children's turnaround almost
-        // entirely their own pause() time and drown out the scheduler
-        // differences the comparison is meant to show.
+
         int cycles = work / 5;
 
         if (cycles < 1)

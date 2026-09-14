@@ -10,13 +10,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Plenty for any process we are likely to look at, and bounded so the
- * descriptor list can live on the stack. */
 #define OPEN_MAX_GUESS 4096
 #define MAX_MAPPINGS   1024
 
-/* Same strict integer parser as ping.c and resume.c: at least one digit,
- * no sign, no trailing junk, no overflow. */
 static bool parse_non_negative_long(const char *text, long *out)
 {
     if (text == NULL || text[0] == '\0') {
@@ -32,10 +28,6 @@ static bool parse_non_negative_long(const char *text, long *out)
     return true;
 }
 
-/* lsof-style type letters for whatever the descriptor actually points at.
- * Sockets and pipes are reported with what stat() says rather than being
- * skipped - the assignment puts network *types* out of scope, not the
- * entries themselves. */
 static const char *type_of(mode_t mode)
 {
     if (S_ISREG(mode)) {
@@ -62,9 +54,7 @@ static const char *type_of(mode_t mode)
     return "unknown";
 }
 
-/* stat() the /proc entry rather than the resolved path: it follows to the
- * real object, and it still works for things with no name in the
- * filesystem, like a pipe. Returns "unknown" if it cannot be stat'ed. */
+// stat the /proc entry, not the target string: a pipe has no real path
 static const char *type_of_proc_entry(const char *proc_path)
 {
     struct stat metadata;
@@ -81,9 +71,6 @@ static void print_row(long pid, const char *fd, const char *type,
     printf("%-6ld %-5s %-6s %s\n", pid, fd, type, path);
 }
 
-/* readlink() into a caller-owned buffer, NUL-terminating by hand since
- * readlink does not. Returns false if the link cannot be read, which is
- * normal for a process we do not own. */
 static bool read_proc_link(const char *proc_path, char *out, size_t size)
 {
     ssize_t length = readlink(proc_path, out, size - 1);
@@ -95,20 +82,6 @@ static bool read_proc_link(const char *proc_path, char *out, size_t size)
     return true;
 }
 
-/* One row per *unique* pathname in /proc/<pid>/maps. The kernel emits one
- * line per segment, so every library shows up four or five times with
- * different permissions; the spec explicitly wants each printed once.
- *
- * `exclude` is the executable, already printed as txt. It is mapped like
- * anything else, but the writeup's example lists /usr/bin/sleep under txt
- * and never again under mem, which is what lsof does too.
- *
- * A maps line looks like:
- *   7f3a.. -7f3a.. r-xp 00000000 08:01 1234   /usr/lib/libc.so.6
- * The path is everything after the sixth field, and it is only present for
- * file-backed mappings - anonymous memory and [heap]/[stack] have either
- * nothing or a bracketed name there, and both are skipped.
- */
 static void print_mappings(long pid, const char *exclude)
 {
     char maps_path[PATH_MAX];
@@ -126,7 +99,7 @@ static void print_mappings(long pid, const char *exclude)
 
     while (fgets(line, sizeof(line), maps) != NULL &&
            seen_count < MAX_MAPPINGS) {
-        /* Walk past the six fixed fields to whatever remains. */
+
         char *cursor = line;
         for (int field = 0; field < 5; field++) {
             cursor = strchr(cursor, ' ');
@@ -146,7 +119,6 @@ static void print_mappings(long pid, const char *exclude)
             *newline = '\0';
         }
 
-        /* Only file-backed mappings have a real path here. */
         if (cursor[0] != '/') {
             continue;
         }
@@ -154,6 +126,7 @@ static void print_mappings(long pid, const char *exclude)
             continue;
         }
 
+        // maps has one line per segment, so each file repeats several times
         bool duplicate = false;
         for (size_t index = 0; index < seen_count; index++) {
             if (strcmp(seen[index], cursor) == 0) {
@@ -171,8 +144,6 @@ static void print_mappings(long pid, const char *exclude)
         }
         seen_count++;
 
-        /* A mapping's path is a real filesystem path, so it can be stat'ed
-         * directly - no need to go back through /proc for the type. */
         print_row(pid, "mem", type_of_proc_entry(cursor), cursor);
     }
 
@@ -191,10 +162,6 @@ static int descriptor_compare(const void *left, const void *right)
     return a < b ? -1 : (a > b ? 1 : 0);
 }
 
-/* Numeric descriptors, ascending. readdir() hands them back in whatever
- * order the filesystem likes, so they are collected and sorted rather than
- * printed as they arrive - "0, 1, 2" in the writeup's example is clearly
- * meant to be in order. */
 static void print_descriptors(long pid)
 {
     char dir_path[PATH_MAX];
@@ -227,8 +194,7 @@ static void print_descriptors(long pid)
 
         snprintf(proc_path, sizeof(proc_path), "/proc/%ld/fd/%ld", pid,
                  numbers[index]);
-        /* The descriptor can be gone by now - opendir() itself used one,
-         * and the process is running while we look at it. */
+
         if (!read_proc_link(proc_path, target, sizeof(target))) {
             continue;
         }
@@ -254,8 +220,6 @@ int spy_execute(const ShellState *state, const TokenList *tokens)
         return -1;
     }
 
-    /* At most one pid. Two or more is a syntax error whether or not they
-     * would have resolved. */
     if (tokens->count > 2) {
         fprintf(stderr, "spy: invalid syntax\n");
         return 0;
@@ -281,8 +245,6 @@ int spy_execute(const ShellState *state, const TokenList *tokens)
     char proc_path[PATH_MAX];
     char target[PATH_MAX];
 
-    /* cwd and the executable text, in the order the writeup's example
-     * prints them. */
     snprintf(proc_path, sizeof(proc_path), "/proc/%ld/cwd", pid);
     if (read_proc_link(proc_path, target, sizeof(target))) {
         print_row(pid, "cwd", type_of_proc_entry(proc_path), target);

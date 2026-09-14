@@ -32,19 +32,10 @@ static int is_builtin_name(const char *name)
             strcmp(visible_name, "activities") == 0 ||
             strcmp(visible_name, "resume") == 0 ||
             strcmp(visible_name, "ping") == 0 ||
-            strcmp(visible_name, "spy") == 0);
+            strcmp(visible_name, "spy") == 0 ||
+            strcmp(visible_name, "snoop") == 0);
 }
 
-/* Runs a builtin in a forked child and returns the exit status to hand to
- * _exit(). The fflush is the whole point: builtins print through stdio,
- * and stdio is fully buffered (not line buffered) whenever stdout is a
- * pipe or a file instead of a terminal. _exit() deliberately skips atexit
- * handlers and stream flushing, so without this every builtin that prints
- * via printf/fwrite - reveal, locate, peek -n - silently threw its whole
- * output away the moment it was redirected or put in a pipeline, while
- * peek's plain path survived only because it happens to use raw write().
- * fflush(NULL) covers stdout and any other open stream; a failure here
- * means the output never made it, so it has to be reported as failure. */
 static int run_builtin_child(ShellState *state, const CommandLine *command)
 {
     BuiltinResult result = builtin_execute(state, command);
@@ -74,9 +65,6 @@ static void close_pipeline_fds(int pipe_fds[][2], size_t pipe_count)
     }
 }
 
-/* Closes whichever ends of the Q47 starting-gun pipe are still open in
- * this process, idempotently. Closing the write end is what releases the
- * children, so every path out of execute_pipeline() has to reach this. */
 static void close_sync_pipe(int sync_fds[2])
 {
     for (size_t end = 0; end < 2; end++) {
@@ -87,9 +75,6 @@ static void close_sync_pipe(int sync_fds[2])
     }
 }
 
-/* Child side of the starting gun: drop our copy of the write end (so the
- * parent's close can actually reach zero writers) and block until the
- * parent fires it. */
 static void wait_for_start(int sync_fds[2])
 {
     if (sync_fds[1] < 0) {
@@ -106,10 +91,6 @@ static void wait_for_start(int sync_fds[2])
     sync_fds[0] = -1;
 }
 
-/* Best-effort terminal handoff for E2: give/reclaim the controlling
- * terminal so job-control signals (SIGINT/SIGTSTP) reach whichever process
- * group is actually in the foreground. Silently does nothing when stdin
- * isn't a controlling terminal (e.g. redirected test fixtures). */
 void give_terminal(const ShellState *state, pid_t pgid)
 {
     if (state == NULL || state->terminal_fd < 0) {
@@ -202,15 +183,6 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         }
     }
 
-    /* Q47: the `[job] pid` line must appear before any of the background
-     * command's own output, but fork() returns in parent and child at the
-     * same instant, so without help the child can reach execve() first.
-     * This pipe is the starting gun: every child blocks reading it and is
-     * released only once the parent has closed the write end, which it
-     * does immediately after printing the job line. read() returns 0 only
-     * when *every* copy of the write end is gone, so one close in the
-     * parent frees the whole pipeline at once. Foreground commands print
-     * no job line and so need no starting gun. */
     int sync_fds[2] = {-1, -1};
     if (background && pipe(sync_fds) != 0) {
         close_pipeline_fds(pipe_fds, pipe_count);
@@ -230,9 +202,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         if (child < 0) {
             fprintf(stderr, "cshell: unable to fork\n");
             close_pipeline_fds(pipe_fds, pipe_count);
-            /* Release any children already parked on the starting gun,
-             * otherwise the waitpid() loop below waits on processes that
-             * are themselves waiting on us. */
+
             close_sync_pipe(sync_fds);
             for (size_t cleanup = 0; cleanup < command_count; cleanup++) {
                 input_redirection_close_parent(&inputs[cleanup]);
@@ -259,13 +229,10 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         if (setpgid(0, process_group) != 0) {
             _exit(1);
         }
+        // fork inherits SIG_IGN and execve does not reset it, so undo it here
         signals_restore_terminal_defaults();
+        // held at the gate until the parent has printed the job line
         wait_for_start(sync_fds);
-
-        /* background jobs keep their stdin. pointing it at /dev/null kills
-         * anything that reads - `cat | sort &` saw EOF and vanished before
-         * activities could list it. the kernel already keeps them off the
-         * terminal: a background group that reads it gets SIGTTIN. */
 
         if (index > 0 && dup2(pipe_fds[index - 1][0], STDIN_FILENO) < 0) {
             _exit(1);
@@ -320,10 +287,6 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         sync_fds[0] = -1;
     }
 
-    /* The job line and the starting gun both have to come before the
-     * redirection helpers are forked: those helpers never exec, so a copy
-     * of the write end left open in one of them would keep the children
-     * parked for as long as the helper runs. */
     if (background) {
         char command_line[4096];
         build_pipeline_display(pipeline, command_line, sizeof(command_line));
@@ -357,7 +320,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
                (long)children[0]);
         fflush(stdout);
         state->next_job_number++;
-        /* Job line is on screen and flushed - fire the starting gun. */
+
         close_sync_pipe(sync_fds);
     }
 
@@ -378,9 +341,6 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         return EXEC_HANDLED;
     }
 
-    /* Scratch job used only if Ctrl-Z stops this pipeline; discarded
-     * otherwise. Built before waiting so job_update_process() has
-     * somewhere to record each process's status as it changes. */
     char display[4096];
     build_pipeline_display(pipeline, display, sizeof(display));
     Job *scratch = job_create(0, process_group, display);
@@ -428,21 +388,12 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     if (any_stopped && scratch != NULL) {
         scratch->job_number = state->next_job_number++;
         job_add(state, scratch);
-        /* Ctrl-Z is echoed by the tty as "^Z" with no newline after it, so
-         * without this the Stopped line lands glued to it. The E2 and E3
-         * examples both show them on separate lines. Same reasoning as the
-         * WIFSIGNALED newline a few lines below; one newline for the whole
-         * pipeline, not one per stopped stage. */
+
         putchar('\n');
         printf("[%d] + Stopped    %s\n", scratch->job_number,
                scratch->command_line);
         fflush(stdout);
-        /* Any redirection helper writers are left running rather than
-         * waited on here: they aren't part of the job's process group, so
-         * they didn't stop with it, and one blocked writing into a pipe
-         * the now-stopped job isn't reading would hang the shell. They are
-         * still reaped generically by jobs_reap_background once they
-         * eventually exit. */
+
         for (size_t index = 0; index < command_count; index++) {
             free(resolved_paths[index]);
         }
@@ -453,12 +404,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
     }
 
     if (any_signaled) {
-        /* A foreground process killed by an uncaught signal (Ctrl-C being
-         * the common case) very likely left the cursor mid-line - nothing
-         * else in this codebase checks whether the terminal is at column 0
-         * before printing the next prompt, so make sure of it here. Not
-         * specified anywhere in rules.md; matches real shells' own
-         * behavior and keeps this consistent with execute_part_c(). */
+
         putchar('\n');
         fflush(stdout);
     }
@@ -524,13 +470,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
         .count = command.argc,
         .capacity = command.argc,
     }};
-    /* Only a name check here, not an actual call: builtin_execute() has
-     * real side effects (peek reads stdin, hop changes the cwd, ...), and
-     * with redirection present those must happen exactly once, in the
-     * child, after the redirection is actually connected - never here in
-     * the parent first. Calling it unconditionally used to run every
-     * builtin combined with redirection twice, silently against the
-     * shell's own real stdin/stdout the first time. */
+
     bool command_is_builtin = is_builtin_name(command.argv[0]);
     if (command_is_builtin && input.input_count == 0 &&
         output.output_count == 0) {
@@ -649,20 +589,17 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
             job_update_process(job, child, status);
             job_add(state, job);
             state->next_job_number++;
-            /* See execute_pipeline(): move past the tty's echoed "^Z". */
+
             putchar('\n');
             printf("[%d] + Stopped    %s\n", job_number, display);
             fflush(stdout);
         }
-        /* See execute_pipeline()'s stopped path: redirection helper
-         * writers are deliberately left running, not waited on here. */
+
         return EXEC_STOPPED;
     }
 
     if (WIFSIGNALED(status)) {
-        /* See execute_pipeline()'s matching check: an uncaught signal
-         * (Ctrl-C) very likely left the cursor mid-line, and nothing
-         * ensures the next prompt starts on a fresh one otherwise. */
+
         putchar('\n');
         fflush(stdout);
     }

@@ -52,8 +52,7 @@ int main(void)
             return 1;
         }
         if (result == INPUT_INTERRUPTED) {
-            /* The kernel echoed "^C" with no newline of its own, so move
-             * to a fresh line before the loop redraws the prompt. */
+
             putchar('\n');
             continue;
         }

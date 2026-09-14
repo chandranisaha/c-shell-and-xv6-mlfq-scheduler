@@ -4,7 +4,6 @@
 #include "shell.h"
 #include "token.h"
 
-/* Syntax: resume %job_number (fg [--timeout <seconds>] | bg) */
 int resume_execute(ShellState *state, const TokenList *tokens);
 
 #endif

@@ -42,9 +42,7 @@ static int collect_entries(const char *directory, int show_hidden,
     size_t capacity = 0;
     struct dirent *entry;
     while ((entry = readdir(handle)) != NULL) {
-        /* `reveal -a` is `ls -A`, not `ls -a`: "." and ".." are never
-         * listed, whatever the flags. Besides matching the clarified
-         * spec, this is what keeps `-t` from recursing forever. */
+
         if (strcmp(entry->d_name, ".") == 0 ||
             strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -75,11 +73,6 @@ static int collect_entries(const char *directory, int show_hidden,
             return -1;
         }
 
-        /* lstat, not stat: stat() follows symlinks, so a symlink pointing
-         * at a directory would report S_ISDIR and `-t` would descend into
-         * the target - forever, if the link happens to form a cycle. Q42
-         * says a symlinked directory is listed but never descended into,
-         * which is exactly what lstat lets us tell apart. */
         struct stat metadata;
         if (lstat(full_path, &metadata) != 0) {
             metadata.st_mode = 0;
@@ -114,12 +107,7 @@ static int reveal_directory(const char *directory, const char *display_prefix,
 
     for (size_t index = 0; index < count; index++) {
         const DirectoryEntry *entry = &entries[index];
-        /* Q27: the trailing "/" is a display aid for the recursive listing
-         * only - a plain `reveal` prints bare names. Sorting already
-         * compares bare names either way (Q19). */
-        /* Q30: a name containing a space is single-quoted, the way ls
-         * does it. Only the name itself is quoted - the recursive path
-         * prefix and the display slash stay outside, matching `ls -F`. */
+
         const char *quote = strchr(entry->name, ' ') != NULL ? "'" : "";
         printf("%s%s%s%s%s\n", display_prefix, quote, entry->name, quote,
                (recursive && entry->is_directory) ? "/" : "");
@@ -167,8 +155,7 @@ int reveal_execute(const ShellState *state, const TokenList *tokens)
 
         const char *argument = tokens->items[index].value;
         if (argument[0] == '-' && argument[1] != '\0') {
-            /* Q18: the grammar is `reveal (-(a|t)*)* (~|.|..|-|name)?`,
-             * so every flag has to come before the path. */
+
             if (positional_count > 0) {
                 fprintf(stderr, "reveal: invalid syntax\n");
                 return 0;

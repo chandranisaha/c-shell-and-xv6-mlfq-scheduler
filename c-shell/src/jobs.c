@@ -203,10 +203,6 @@ int jobs_reap_background(ShellState *state)
             continue;
         }
 
-        /* Only the first command of a pipeline is reported, so the verdict
-         * is taken from its status alone - consistent with the pid and name
-         * printed below. A process that called exit() counted as "normal"
-         * whatever its exit code; only death by signal is abnormal. */
         JobProcess *first = job->processes;
         bool exited_normally = first != NULL && WIFEXITED(first->status);
 

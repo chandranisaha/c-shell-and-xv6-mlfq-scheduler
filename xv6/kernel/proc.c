@@ -15,15 +15,10 @@ struct proc *initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
-// Rather than four real linked lists, a process carries its queue number and
-// a ticket taken from this counter. "Push to the tail of queue q" is then just
-// "set queue = q and take a fresh ticket", and picking the next process to run
-// is "lowest queue, and among those the lowest ticket". That is exact FIFO
-// order inside every queue without a second lock to get wrong.
+// a queue position is just a ticket: lowest queue, then lowest ticket
 uint64 next_enter_seq = 1;
 struct spinlock seq_lock;
 
-// ticks a process may run for before it drops a queue, indexed by queue.
 static const int mlfq_slices[NQUEUE] = {1, 4, 8, 16};
 
 int
@@ -46,10 +41,6 @@ alloc_enter_seq(void)
 }
 
 #ifdef MLFQ
-// Spec rule 5: a process that gave the cpu up on its own left the queuing
-// network, and when it becomes runnable again it goes to the tail of the
-// *same* queue it left from -- priority unchanged, just back of the line.
-// A fresh ticket is exactly that. p->lock must be held.
 static void
 mlfq_requeue(struct proc *p)
 {
@@ -59,15 +50,6 @@ mlfq_requeue(struct proc *p)
 #endif
 
 #ifdef MLFQ
-// Spec rule 7, the anti-starvation boost: every BOOST_INTERVAL ticks every
-// process in the system goes back to queue 0, whatever it was doing. Called
-// from clockintr() on cpu 0 only, so it fires once per interval rather than
-// once per core.
-//
-// Tickets are left alone on purpose. Everything lands in queue 0 together,
-// so relative order among them is decided entirely by the tickets they
-// already hold -- which means whoever had been waiting longest still gets
-// served first, instead of the boost silently reshuffling the queue.
 void
 mlfq_boost(void)
 {
@@ -85,26 +67,16 @@ mlfq_boost(void)
 #endif
 
 #ifdef MLFQ
-// Is anything runnable in a strictly better queue than `queue`? Used to
-// honour strict priority at tick boundaries. Must not be called with any
-// p->lock held -- the scan takes every one of them in turn, including the
-// caller's own.
+// must be called with no p->lock held: it takes every one of them
 static int
 mlfq_higher_waiting(int queue)
 {
   struct proc *p;
 
-  // nothing can outrank queue 0, so skip the scan entirely for the common
-  // case of a process that is already at the top.
   if (queue <= 0)
     return 0;
 
   for (p = proc; p < &proc[NPROC]; p++) {
-    // unlocked pre-filter. most of the 64 slots are never RUNNABLE, and
-    // taking every p->lock once per tick per cpu is a lot of traffic on the
-    // busiest lock in the kernel. a stale read here is harmless: the real
-    // check below is done under the lock, and the worst case is missing a
-    // preemption for one tick, which the spec explicitly permits.
     if (p->state != RUNNABLE)
       continue;
 
@@ -120,12 +92,6 @@ mlfq_higher_waiting(int queue)
 #endif
 
 #ifdef MLFQ
-// Called from the timer trap, after update_time() has already charged this
-// tick. Returns 1 if the process on this cpu should give up. A process that
-// has burnt its whole slice drops one queue -- or, if it is already in the
-// bottom queue, just goes to the back of that one, which is what makes
-// queue 3 round-robin -- and starts a fresh slice at the tail of wherever it
-// lands.
 int
 mlfq_tick(void)
 {
@@ -151,11 +117,6 @@ mlfq_tick(void)
   }
   release(&p->lock);
 
-  // Strict priority, the other half of spec rule 2: something better turned
-  // up while we were running, so step aside at this tick boundary. Note it
-  // keeps both its queue and its part-burnt slice -- being interrupted by an
-  // unrelated higher-priority arrival is not the process's fault, and the
-  // rules only demote a process whose slice is actually spent.
   if (!give_up && mlfq_higher_waiting(queue))
     give_up = 1;
 
@@ -163,23 +124,12 @@ mlfq_tick(void)
 }
 #endif
 
-// Called once per tick from clockintr(). Keeps the running and ready-queue
-// totals the report's comparison needs, and burns down the slice of whatever
-// is currently on a cpu. Compiled into every build, not just MLFQ, because
-// the comparison in 2.2 needs the same numbers out of plain round-robin --
-// it only writes bookkeeping fields, so no scheduling decision changes.
-// Safe to take p->lock here: acquire() turns interrupts off, so a cpu can
-// never be inside clockintr() while already holding one.
 void
 update_time(void)
 {
   struct proc *p;
 
   for (p = proc; p < &proc[NPROC]; p++) {
-    // unlocked pre-filter, same reasoning as mlfq_higher_waiting(): only
-    // RUNNING and RUNNABLE processes are charged anything, and taking all
-    // 64 locks every tick contends badly with the scheduler's own scan.
-    // Re-checked under the lock below.
     if (p->state != RUNNING && p->state != RUNNABLE)
       continue;
 
@@ -191,10 +141,6 @@ update_time(void)
       p->wtime++;
     }
 #if defined(MLFQ) && defined(MLFQTRACE)
-    // one sample per tick per process that is actually in the queuing
-    // network, which is exactly what the timeline plot needs: tick on x,
-    // queue on y, one colour per pid. built only with TRACE=1 so a normal
-    // kernel is not slowed down by console i/o inside the timer interrupt.
     if (p->state == RUNNING || p->state == RUNNABLE)
       printk("MLFQTRACE %d %d %d %d\n", ticks, p->pid, p->queue,
              p->state == RUNNING ? 1 : 0);
@@ -314,7 +260,6 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  // every new process starts at the tail of queue 0, per the mlfq rules.
   p->queue = 0;
   p->slice_used = 0;
   p->enter_seq = alloc_enter_seq();
@@ -572,15 +517,6 @@ kexit(int status)
   panic("zombie exit");
 }
 
-// Wait for a child to exit, and optionally report how it spent its life:
-// the three metrics 2.2 asks for (turnaround, waiting, response) plus the
-// running total as a sanity check. Each address may be 0 to skip it, and
-// kwait() is just this with all of them omitted, so there is exactly one
-// copy of the reaping logic.
-//
-// The statistics must be copied out BEFORE freeproc(), which zeroes every
-// field on the proc as it recycles the slot. Reaping first and reading after
-// returns zeros, silently.
 static int
 kwait_stats(uint64 addr, uint64 taddr, uint64 waddr, uint64 rspaddr,
             uint64 runaddr)
@@ -611,11 +547,9 @@ kwait_stats(uint64 addr, uint64 taddr, uint64 waddr, uint64 rspaddr,
             return -1;
           }
 
-          // read the statistics out while the proc is still intact
           int turnaround = pp->etime - pp->ctime;
           int waiting = pp->wtime;
           int running = pp->rtime;
-          // -1 if it somehow exited without ever reaching a cpu
           int response = pp->first_run >= 0 ? pp->first_run - pp->ctime : -1;
 
           if ((taddr != 0 && copyout(p->pagetable, p->sz, taddr,
@@ -694,10 +628,6 @@ scheduler(void)
     intr_off();
 
 #ifdef MLFQ
-    // strict priority: the best candidate is the runnable process in the
-    // lowest-numbered queue, and among those the one that has been waiting
-    // longest, which is the smallest enter_seq. one pass to find it, then a
-    // second acquire to actually run it.
     struct proc *best = 0;
     int best_queue = 0;
     uint64 best_seq = 0;
@@ -722,8 +652,7 @@ scheduler(void)
     }
 
     acquire(&best->lock);
-    // another core may have grabbed or killed it while we were scanning, so
-    // the state has to be rechecked now that the lock is actually held.
+    // recheck: another core may have taken it while we were scanning
     if (best->state == RUNNABLE) {
       if (best->first_run < 0)
         best->first_run = ticks;
@@ -738,10 +667,6 @@ scheduler(void)
     }
     release(&best->lock);
 #elif defined(FIFO)
-    // first come first served: run whichever runnable process arrived
-    // earliest and, with the timer yield disabled in trap.c, let it run to
-    // completion. enter_seq is exactly arrival order here -- nothing
-    // reassigns it outside MLFQ, so it stays as allocproc() handed it out.
     struct proc *best = 0;
     uint64 best_seq = 0;
 
@@ -1041,9 +966,6 @@ procdump(void)
       state = "???";
     printk("%d %s %s", p->pid, state, p->name);
 #ifdef MLFQ
-    // everything needed to check the rules by eye: which queue it sits in,
-    // how much of that queue's slice it has burnt, and how long until the
-    // next boost drags it back to queue 0.
     printk("  q%d slice %d/%d seq %d  run %d wait %d  boost in %d", p->queue,
            p->slice_used, mlfq_slice(p->queue), (int)p->enter_seq, p->rtime,
            p->wtime, BOOST_INTERVAL - (int)(ticks % BOOST_INTERVAL));

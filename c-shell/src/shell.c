@@ -54,9 +54,7 @@ int shell_state_init(ShellState *state)
 void shell_state_destroy(ShellState *state)
 {
     if (state != NULL) {
-        /* E2: whenever the shell exits with background or stopped jobs
-         * still tracked, every one of them gets SIGHUP before we tear down
-         * our own state, without waiting for them to react to it. */
+
         jobs_hangup_all(state);
         Job *job = state->jobs;
         while (job != NULL) {

@@ -83,13 +83,9 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
 #ifdef MLFQ
-  // under mlfq a process keeps the cpu until its slice is actually spent,
-  // rather than being bounced on every single tick.
   if (which_dev == 2 && mlfq_tick())
     yield();
 #elif defined(FIFO)
-  // fifo is non-preemptive: a process runs until it blocks or exits, so the
-  // timer must not take the cpu away from it.
 #else
   if (which_dev == 2)
     yield();
@@ -168,7 +164,6 @@ kerneltrap()
   if (which_dev == 2 && myproc() != 0 && mlfq_tick())
     yield();
 #elif defined(FIFO)
-  // see usertrap(): fifo does not preempt on the timer.
 #else
   if (which_dev == 2 && myproc() != 0)
     yield();
@@ -189,12 +184,9 @@ clockintr()
     wakeup(&ticks);
     release(&tickslock);
 
-    // one tick has passed for every process in the system, so account for
-    // it exactly once, here on cpu 0, rather than once per core.
     update_time();
 
 #ifdef MLFQ
-    // ticks was just incremented, so this fires on tick 48, 96, 144...
     if (ticks % BOOST_INTERVAL == 0)
       mlfq_boost();
 #endif

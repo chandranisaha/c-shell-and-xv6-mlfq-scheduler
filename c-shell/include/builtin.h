@@ -5,6 +5,7 @@
 #include "command.h"
 #include "peek.h"
 #include "ping.h"
+#include "snoop.h"
 #include "spy.h"
 #include "resume.h"
 #include "reveal.h"

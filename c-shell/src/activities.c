@@ -16,7 +16,6 @@ int activities_execute(ShellState *state, const TokenList *tokens)
         return -1;
     }
 
-    /* Processes that have exited must be removed before printing. */
     jobs_reap_background(state);
 
     for (const Job *job = state->jobs; job != NULL; job = job->next) {

@@ -1,10 +1,7 @@
 #include "parser.h"
 
 static int parse_argument(const TokenList *tokens, size_t *position);
-/* 
- * Validates a command (CMD -> WORD ARG).
- * Expects an executable command name as the leading TOKEN_WORD (e.g., after '|' or ';').
- */
+
 static int parse_command(const TokenList *tokens, size_t *position)
 {
     if (*position >= tokens->count ||
@@ -14,21 +11,12 @@ static int parse_command(const TokenList *tokens, size_t *position)
     (*position)++;
     return parse_argument(tokens, position);
 }
-/* 
- * Validates a redirection target (TGT -> WORD ARG).
- * Grammatically identical to CMD, but contextually identifies a target file 
- * following a redirection operator ('<', '>', '>>') rather than an executable.
- */
+
 static int parse_target(const TokenList *tokens, size_t *position)
 {
     return parse_command(tokens, position);
 }
 
-/* 
- * Validates a background command (BKG -> CMD).
- * Grammatically identical to CMD, but contextually identifies a command 
- * that should run in the background.
- */
 static int parse_background(const TokenList *tokens, size_t *position)
 {
     if (*position == tokens->count) {

@@ -75,9 +75,6 @@ static int print_line(const LineBuffer *line, size_t number, int numbered)
     return fwrite(line->data, 1, line->length, stdout) == line->length ? 0 : -1;
 }
 
-/* Q33: `-n` numbering is continuous across every argument on one peek
- * command line, so the running count lives in the caller and is threaded
- * through here rather than restarting at 0 per file. */
 static int print_stream(int fd, int numbered, size_t *counter)
 {
     size_t line_number = *counter;
@@ -227,10 +224,6 @@ static int print_range(int fd, off_t start, off_t end)
     return 0;
 }
 
-/* Reverse numbering (Q33): the number stays tied to the line's original
- * position, so this file's lines occupy *counter+1 .. *counter+count and
- * are simply emitted highest-first. That is what turns two two-line files
- * into 2,1,4,3 rather than 2,1,2,1. */
 static int print_reverse_regular(int fd, off_t size, int numbered,
                                  size_t *counter)
 {
@@ -367,8 +360,7 @@ static int process_input_fd(int fd, int numbered, int reverse, size_t *counter)
     if (reverse) {
         return print_reverse_stream(fd, numbered, counter);
     }
-    /* Without -n there is nothing to count, so the fast whole-chunk copy
-     * needs no counter at all. */
+
     return numbered ? print_stream(fd, 1, counter) : copy_stream(fd);
 }
 
@@ -437,8 +429,6 @@ int peek_execute(const ShellState *state, const TokenList *tokens)
         }
     }
 
-    /* One running line counter for the whole command line, shared by every
-     * argument, so -n numbers carry over from one file to the next. */
     size_t counter = 0;
     if (file_count == 0) {
         (void)process_file("-", numbered, reverse, &counter);

@@ -11,8 +11,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/* Same non-negative-integer parser as resume.c: no sign, no leading/
- * trailing junk, at least one digit, no overflow. */
 static bool parse_non_negative_long(const char *text, long *out)
 {
     if (text == NULL || text[0] == '\0') {
@@ -51,9 +49,6 @@ int ping_execute(ShellState *state, const TokenList *tokens)
     const char *target_arg = tokens->items[1].value;
     const char *signal_arg = tokens->items[2].value;
 
-    /* signal_number is validated before target is looked up, and negative
-     * numbers are a syntax error rather than a value to be reduced by the
-     * modulo. */
     long typed_signal = 0;
     if (!parse_non_negative_long(signal_arg, &typed_signal)) {
         printf("ping: invalid syntax\n");
@@ -74,8 +69,7 @@ int ping_execute(ShellState *state, const TokenList *tokens)
     } else {
         long pid_value = 0;
         if (parse_non_negative_long(target_arg, &pid_value)) {
-            /* Only pids this shell itself spawned and is still tracking
-             * count - a pid that merely exists on the system is unknown. */
+
             if (job_find_by_pid(state, (pid_t)pid_value) != NULL) {
                 target_pid = (pid_t)pid_value;
                 found = true;
