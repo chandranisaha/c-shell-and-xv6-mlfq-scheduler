@@ -3,8 +3,11 @@
 Name: Chandrani Saha
 Roll number: 2024113002
 
-This is my mid-submission for the CS3.301 Operating Systems and Networks
-mini-project. It contains my C-Shell implementation completed through Part C.
+This repository contains both halves of the CS3.301 Operating Systems and
+Networks mini-project: a C-Shell written from scratch, and an MLFQ
+scheduling policy added to the xv6-riscv kernel. The two are independent —
+the shell is an ordinary POSIX program in `c-shell/`, the scheduler is
+kernel code in `xv6/` — and they share nothing but this repository.
 
 ## C-Shell
 
@@ -15,9 +18,10 @@ The shell maintains its own working-directory state, displays a custom prompt,
 supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
-Parts A through E of the C-Shell are complete and tested in WSL. Part F
-(`spy`/`snoop`, the optional "Fun Stuff" section) and the separate xv6 MLFQ
-scheduler work are still pending.
+Parts A through E of the C-Shell are complete and tested in WSL, checked
+line by line against every example transcript in the assignment. Part F
+(`spy` and `snoop`) is in progress. The xv6 MLFQ scheduler is complete and
+passes the kernel's own `usertests` suite.
 
 Implemented shell features:
 
@@ -265,6 +269,117 @@ Important implementation decisions:
     been written when the first attempt is interrupted and the retry sends
     the queued bytes exactly once. See `DESIGN_LOG.md` (`dd-012`).
 
+## xv6: the MLFQ scheduler
+
+`xv6/` holds MIT's xv6-riscv (revision `9e3161a9`) with a Multi-Level
+Feedback Queue scheduling policy added alongside the stock round-robin one.
+Note this is a *recent* xv6 revision, not the one most MLFQ write-ups
+assume: the kernel prints with `printk()` rather than `printf()`, process
+exit is `kexit()`, the sleep syscall is spelled `pause()`, and there is
+lazy page allocation via `vmfault()`.
+
+### Choosing a policy at build time
+
+```bash
+make clean; make qemu                   # stock round robin, untouched
+make clean; make qemu SCHEDULER=MLFQ    # multi-level feedback queue
+make clean; make qemu SCHEDULER=FIFO    # first come first served
+make clean; make qemu SCHEDULER=MLFQ TRACE=1   # MLFQ + queue trace output
+```
+
+The Makefile appends `-D$(SCHEDULER)` only when the variable is set, so an
+unset `SCHEDULER` compiles the original round-robin path with no scheduler
+macro defined at all. `make clean` between policies is required — the macro
+is not tracked by make's dependency rules, so stale `.o` files would
+otherwise be reused.
+
+`SCHEDULER=FIFO` is an addition beyond the writeup's table: §2.2 asks for a
+FIFO column in the comparison and there is no Homework-2 FIFO scheduler in
+this repository to borrow, so one was written.
+
+### How the queues are represented
+
+There are no linked lists. Each process carries two numbers — `queue`
+(0–3) and `enter_seq`, a ticket drawn from a global monotonic counter — and
+the scheduler picks **the lowest queue, then the lowest ticket**. "Push to
+the tail of queue q" is "set `queue = q` and take a fresh ticket".
+
+That gives exact FIFO ordering inside every queue, makes queue 3's
+round-robin fall out for free, and needs no lock beyond the `p->lock` the
+kernel already takes while scanning `proc[]`. Four real queues would have
+needed their own lock, consistently ordered against `p->lock` and
+`wait_lock` at every site that changes process state — which is where this
+assignment usually deadlocks.
+
+### Where each scheduling rule lives
+
+| Rule | Implementation |
+|---|---|
+| New process → tail of queue 0 | `allocproc()` |
+| Strict priority selection | `scheduler()`, `#ifdef MLFQ` branch |
+| Exit leaves the queuing system | implicit — a ZOMBIE is never RUNNABLE |
+| Slice exhausted → drop a queue | `mlfq_tick()`, slices `{1,4,8,16}` |
+| Queue 3 round-robin | same path — queue 3 re-tails itself |
+| Voluntary yield → tail of same queue | `mlfq_requeue()`, from `wakeup()`/`kkill()` |
+| Boost every 48 ticks | `mlfq_boost()`, from `clockintr()` |
+| Preemption by a higher-priority arrival | `mlfq_higher_waiting()` |
+
+Preemption happens at tick boundaries, which is all §2.1.3 requires:
+`usertrap()`/`kerneltrap()` call `yield()` on a timer interrupt only when
+`mlfq_tick()` says the slice is spent or something better is waiting.
+
+Two deliberate judgement calls, both places the specification is silent:
+
+- **A process that yields early gets a fresh slice on return.** The rule
+  fixes its *priority* but says nothing about the partly-burnt slice.
+  Resetting is the plainer reading; it does mean a process that always
+  sleeps at 90% of its slice keeps top priority, which the 48-tick boost
+  bounds.
+- **A preempted process keeps both its queue and its part-burnt slice.**
+  Being displaced by an unrelated higher-priority arrival is not its fault,
+  and the rules only demote a process whose slice is genuinely spent.
+
+### Instrumentation
+
+`procdump()` (Ctrl-P) prints the stock line plus, under MLFQ:
+
+```
+4 run  schedulertest  q3 slice 12/16 seq 7  run 25 wait 0  boost in 21
+```
+
+queue, ticks burnt out of that queue's slice, FIFO ticket, running and
+waiting totals, and ticks until the next boost.
+
+Every process also carries `ctime`/`etime`/`rtime`/`wtime`/`first_run`,
+maintained by `update_time()` once per tick. **These are compiled into
+every build, not just MLFQ** — §2.2 needs the same numbers out of plain
+round-robin, and they are impossible to produce otherwise. They only ever
+write bookkeeping fields and never influence a scheduling decision, so the
+round-robin *policy* is still untouched; it is merely instrumented.
+
+`waitx(int *turnaround, int *waiting, int *response, int *running)` (syscall
+23) exposes them to user space. `kwait()` and `kwaitx()` are thin wrappers
+over one shared `kwait_stats()`, which reads the statistics **before**
+`freeproc()` recycles the slot and zeroes them.
+
+### Measuring and plotting
+
+`user/schedulertest.c` spawns a fixed mix of CPU-bound and I/O-bound
+children and reports per-process and average figures via `waitx`. The same
+`nproc`/`work` arguments must be used for every scheduler or the comparison
+is meaningless.
+
+`TRACE=1` makes the kernel emit `MLFQTRACE <tick> <pid> <queue> <running?>`
+once per tick per active process. Capture the console output and feed it to
+`plot_mlfq.py`, which produces the two report figures. Tracing is off by
+default because it does console I/O from inside the timer interrupt.
+
+```bash
+make clean && make qemu SCHEDULER=MLFQ TRACE=1 | tee trace.txt
+# run: schedulertest 4 1200
+python3 plot_mlfq.py trace.txt
+```
+
 ## Build and run in WSL
 
 ```bash
@@ -276,4 +391,14 @@ make clean && make all
 Ctrl+D to quit the shell
 
 The required compiler flags are included in the Makefile. The executable is
-created as `c-shell/shell.out`.
+created as `c-shell/shell.out`. `make test` runs the A3 grammar unit tests.
+
+For xv6 you need a RISC-V cross-compiler and `qemu-system-riscv64`:
+
+```bash
+sudo apt install gcc-riscv64-unknown-elf qemu-system-misc
+cd /mnt/c/Users/CHANDRANI/Downloads/mini-project1/xv6
+make clean && make qemu SCHEDULER=MLFQ
+```
+
+Ctrl-P dumps the process table, Ctrl-A then X quits QEMU.
