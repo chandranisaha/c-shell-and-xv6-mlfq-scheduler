@@ -13,6 +13,7 @@
 /* Plenty for any process we are likely to look at, and bounded so the
  * descriptor list can live on the stack. */
 #define OPEN_MAX_GUESS 4096
+#define MAX_MAPPINGS   1024
 
 /* Same strict integer parser as ping.c and resume.c: at least one digit,
  * no sign, no trailing junk, no overflow. */
@@ -92,6 +93,94 @@ static bool read_proc_link(const char *proc_path, char *out, size_t size)
     }
     out[length] = '\0';
     return true;
+}
+
+/* One row per *unique* pathname in /proc/<pid>/maps. The kernel emits one
+ * line per segment, so every library shows up four or five times with
+ * different permissions; the spec explicitly wants each printed once.
+ *
+ * `exclude` is the executable, already printed as txt. It is mapped like
+ * anything else, but the writeup's example lists /usr/bin/sleep under txt
+ * and never again under mem, which is what lsof does too.
+ *
+ * A maps line looks like:
+ *   7f3a.. -7f3a.. r-xp 00000000 08:01 1234   /usr/lib/libc.so.6
+ * The path is everything after the sixth field, and it is only present for
+ * file-backed mappings - anonymous memory and [heap]/[stack] have either
+ * nothing or a bracketed name there, and both are skipped.
+ */
+static void print_mappings(long pid, const char *exclude)
+{
+    char maps_path[PATH_MAX];
+
+    snprintf(maps_path, sizeof(maps_path), "/proc/%ld/maps", pid);
+
+    FILE *maps = fopen(maps_path, "r");
+    if (maps == NULL) {
+        return;
+    }
+
+    char *seen[MAX_MAPPINGS];
+    size_t seen_count = 0;
+    char line[PATH_MAX * 2];
+
+    while (fgets(line, sizeof(line), maps) != NULL &&
+           seen_count < MAX_MAPPINGS) {
+        /* Walk past the six fixed fields to whatever remains. */
+        char *cursor = line;
+        for (int field = 0; field < 5; field++) {
+            cursor = strchr(cursor, ' ');
+            if (cursor == NULL) {
+                break;
+            }
+            while (*cursor == ' ') {
+                cursor++;
+            }
+        }
+        if (cursor == NULL) {
+            continue;
+        }
+
+        char *newline = strchr(cursor, '\n');
+        if (newline != NULL) {
+            *newline = '\0';
+        }
+
+        /* Only file-backed mappings have a real path here. */
+        if (cursor[0] != '/') {
+            continue;
+        }
+        if (exclude != NULL && strcmp(cursor, exclude) == 0) {
+            continue;
+        }
+
+        bool duplicate = false;
+        for (size_t index = 0; index < seen_count; index++) {
+            if (strcmp(seen[index], cursor) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        seen[seen_count] = strdup(cursor);
+        if (seen[seen_count] == NULL) {
+            break;
+        }
+        seen_count++;
+
+        /* A mapping's path is a real filesystem path, so it can be stat'ed
+         * directly - no need to go back through /proc for the type. */
+        print_row(pid, "mem", type_of_proc_entry(cursor), cursor);
+    }
+
+    fclose(maps);
+
+    for (size_t index = 0; index < seen_count; index++) {
+        free(seen[index]);
+    }
 }
 
 static int descriptor_compare(const void *left, const void *right)
@@ -199,11 +288,17 @@ int spy_execute(const ShellState *state, const TokenList *tokens)
         print_row(pid, "cwd", type_of_proc_entry(proc_path), target);
     }
 
+    char executable[PATH_MAX];
+    bool have_executable = false;
+
     snprintf(proc_path, sizeof(proc_path), "/proc/%ld/exe", pid);
     if (read_proc_link(proc_path, target, sizeof(target))) {
         print_row(pid, "txt", type_of_proc_entry(proc_path), target);
+        snprintf(executable, sizeof(executable), "%s", target);
+        have_executable = true;
     }
 
+    print_mappings(pid, have_executable ? executable : NULL);
     print_descriptors(pid);
 
     return 0;
