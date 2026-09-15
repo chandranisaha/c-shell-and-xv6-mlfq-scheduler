@@ -11,9 +11,10 @@ Produces two figures:
 
 The timeline is built from the kernel's own trace output. Build with
 
-    make qemu SCHEDULER=MLFQ TRACE=1
+    make qemu SCHEDULER=MLFQ TRACE=1 CPUS=1
 
-and the kernel prints one line per tick per active process:
+and the kernel prints one line per tick per running or runnable process
+(sleeping processes are not sampled, so they show up as gaps):
 
     MLFQTRACE <tick> <pid> <queue> <running?>
 
@@ -43,7 +44,7 @@ USERNAME = "chandrani.saha"
 BOOST_INTERVAL = 48  # kernel/param.h
 NQUEUE = 4           # kernel/param.h
 
-# Measured with `schedulertest 6 200` on a single cpu, the same workload run
+# Measured with `schedulertest 4 5` on a single cpu, the same workload run
 # under each scheduler in turn. Ticks.
 COMPARISON = {
     "FIFO": {"turnaround": 38.50, "waiting": 14.66, "response": 11.16},
@@ -106,7 +107,10 @@ def plot_timeline(series, out_path):
     # init is pid 1 and spends its life asleep; plotting it adds a flat line
     # at queue 0 that tells the reader nothing.
     pids = sorted(pid for pid in series if pid != 1)
-    colours = plt.cm.tab10(range(len(pids)))
+    if not pids:
+        sys.exit("trace only has init in it -- run schedulertest while "
+                 "capturing")
+    colours = plt.cm.tab20(range(len(pids)))
 
     # Processes sitting in the same queue would otherwise draw exactly on top
     # of each other and only the last one would be visible. Nudge each pid a
@@ -136,7 +140,7 @@ def plot_timeline(series, out_path):
 
     plt.yticks(range(NQUEUE), [f"Q{q}" for q in range(NQUEUE)])
     plt.ylim(NQUEUE - 0.5, -0.5)  # queue 0 (highest priority) on top
-    plt.xlabel("Ticks since boot")
+    plt.xlabel("Kernel tick (boosts land on multiples of 48)")
     plt.ylabel("Queue")
     plt.title("xv6 MLFQ: queue occupancy over time")
     plt.grid(axis="y", alpha=0.3)

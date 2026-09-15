@@ -9,7 +9,8 @@
 
 // cpu burst per child, in burn() units, before it sleeps. a tick is roughly
 // 15-25 units under qemu, so these are well under a tick, about 2 ticks,
-// about 7 ticks and about 30 ticks: enough to settle in q0, q1, q2 and q3
+// about 7 ticks and about 30 ticks, aimed at q0, q1, q2 and q3. the exact
+// tick counts depend on the host, so check the trace rather than assume
 static const int bursts[] = {1, 40, 150, 600};
 
 #define NBURSTS (sizeof(bursts) / sizeof(bursts[0]))
@@ -23,7 +24,7 @@ static const int bursts[] = {1, 40, 150, 600};
 static void
 burn(int units)
 {
-  volatile int sink = 0;
+  volatile unsigned sink = 0;
 
   for (int u = 0; u < units; u++)
     for (int i = 0; i < INNER; i++)
@@ -33,7 +34,7 @@ burn(int units)
 static void
 print_avg(char *label, int total, int n)
 {
-  int scaled = (total * 100) / n;
+  int scaled = (total * 100 + n / 2) / n;
 
   printf("%s %d.%d%d", label, scaled / 100, (scaled / 10) % 10, scaled % 10);
 }
@@ -53,6 +54,8 @@ main(int argc, char *argv[])
     nproc = MAX_PROCS;
   if (rounds <= 0)
     rounds = DEFAULT_ROUNDS;
+  if (rounds > 100)
+    rounds = 100;
 
   printf("schedulertest: %d processes, %d rounds\n", nproc, rounds);
 
