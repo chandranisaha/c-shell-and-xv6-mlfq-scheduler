@@ -167,7 +167,11 @@ void job_update_process(Job *job, pid_t pid, int status)
         if (process->pid == pid) {
             process->status = status;
             process->exited = WIFEXITED(status) || WIFSIGNALED(status);
-            process->stopped = WIFSTOPPED(status);
+            // a background job that touches the terminal is stopped by the
+            // kernel with ttin/ttou; the writeup still lists it as running
+            process->stopped = WIFSTOPPED(status) &&
+                               WSTOPSIG(status) != SIGTTIN &&
+                               WSTOPSIG(status) != SIGTTOU;
             job_refresh_state(job);
             return;
         }
