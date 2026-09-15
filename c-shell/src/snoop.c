@@ -26,8 +26,6 @@ typedef struct {
     long calls;
     double seconds;
     long first_seen;
-    bool in_call;
-    struct timespec entered;
 } SyscallStat;
 
 static SyscallStat stats[MAX_TRACKED];
@@ -70,7 +68,6 @@ static SyscallStat *stat_for(long number)
     entry->calls = 0;
     entry->seconds = 0.0;
     entry->first_seen = next_sequence++;
-    entry->in_call = false;
     return entry;
 }
 
@@ -604,6 +601,13 @@ static void print_summary(void)
 static void trace_loop(pid_t tracee, bool detach_on_interrupt)
 {
     int pending_signal = 0;
+    // syscall stops strictly alternate entry, exit, entry, ... so one flag
+    // is enough. the exit is credited to whatever entered, since some exits
+    // (rt_sigreturn) report orig_rax as -1
+    bool in_syscall = false;
+    SyscallStat *current = NULL;
+    struct timespec entered = {0};
+    bool swallowed_stop = false;
 
     (void)ptrace(PTRACE_SETOPTIONS, tracee, 0, (void *)PTRACE_O_TRACESYSGOOD);
 
@@ -631,12 +635,23 @@ static void trace_loop(pid_t tracee, bool detach_on_interrupt)
 
         if (detach_on_interrupt && signals_interrupt_pending()) {
             signals_clear_interrupt();
+            // charge the call it was blocked in up to the moment we let go
+            if (in_syscall && current != NULL) {
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                current->seconds += elapsed(&entered, &now);
+            }
             (void)ptrace(PTRACE_DETACH, tracee, 0, 0);
             putchar('\n');
             break;
         }
 
+        // move off the echoed ^C or ^Z line before the table, like the shell
+        // does for a foreground command
         if (waited < 0 || WIFEXITED(status) || WIFSIGNALED(status)) {
+            if (waited >= 0 && (WIFSIGNALED(status) || swallowed_stop)) {
+                putchar('\n');
+            }
             break;
         }
 
@@ -646,10 +661,24 @@ static void trace_loop(pid_t tracee, bool detach_on_interrupt)
 
         int stop = WSTOPSIG(status);
         if (stop != (SIGTRAP | 0x80)) {
-            if (stop != SIGTRAP && stop != SIGSTOP && stop != SIGTSTP &&
-                stop != SIGTTIN && stop != SIGTTOU) {
+            if (stop == SIGTSTP) {
+                swallowed_stop = true;
+            } else if (stop != SIGTRAP && stop != SIGSTOP && stop != SIGTTIN &&
+                       stop != SIGTTOU) {
                 pending_signal = stop;
             }
+            continue;
+        }
+
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+
+        if (in_syscall) {
+            in_syscall = false;
+            if (current != NULL) {
+                current->seconds += elapsed(&entered, &now);
+            }
+            current = NULL;
             continue;
         }
 
@@ -658,21 +687,11 @@ static void trace_loop(pid_t tracee, bool detach_on_interrupt)
             break;
         }
 
-        SyscallStat *entry = stat_for((long)regs.orig_rax);
-        if (entry == NULL) {
-            continue;
-        }
-
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-
-        if (!entry->in_call) {
-            entry->in_call = true;
-            entry->entered = now;
-            entry->calls++;
-        } else {
-            entry->in_call = false;
-            entry->seconds += elapsed(&entry->entered, &now);
+        in_syscall = true;
+        entered = now;
+        current = stat_for((long)regs.orig_rax);
+        if (current != NULL) {
+            current->calls++;
         }
     }
 }
