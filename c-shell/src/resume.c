@@ -186,7 +186,7 @@ int resume_execute(ShellState *state, const TokenList *tokens)
     if (any_stopped) {
 
         putchar('\n');
-        printf("[%d] + Stopped    %s\n", job->job_number, job->command_line);
+        printf("[%d] + Stopped %s\n", job->job_number, job->command_line);
         fflush(stdout);
     } else if (any_signaled) {
 

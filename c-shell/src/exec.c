@@ -390,7 +390,7 @@ static ExecResult execute_pipeline(const Pipeline *pipeline,
         job_add(state, scratch);
 
         putchar('\n');
-        printf("[%d] + Stopped    %s\n", scratch->job_number,
+        printf("[%d] + Stopped %s\n", scratch->job_number,
                scratch->command_line);
         fflush(stdout);
 
@@ -591,7 +591,7 @@ ExecResult execute_part_c(const CommandLine *command_line, ShellState *state)
             state->next_job_number++;
 
             putchar('\n');
-            printf("[%d] + Stopped    %s\n", job_number, display);
+            printf("[%d] + Stopped %s\n", job_number, display);
             fflush(stdout);
         }
 

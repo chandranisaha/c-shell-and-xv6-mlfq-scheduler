@@ -24,6 +24,7 @@ mini-project1/
 │   ├── trace.txt       MLFQ trace used for the timeline figure
 │   └── report.pdf      implementation summary, MLFQ analysis, comparison
 ├── AI-usage.pdf        AI usage for the submission
+├── AI-usage-mid.pdf    AI usage for the mid submission (parts A-C)
 └── README.md
 ```
 
@@ -233,7 +234,7 @@ current because the reaper also collects `WUNTRACED` and `WCONTINUED` events.
 - The shell installs a flag-only handler for SIGINT (so it never dies from Ctrl-C) and ignores SIGTSTP and SIGTTOU. Every child puts these back to their defaults before `execve()`, since an ignored disposition would otherwise survive `exec` and make the job immune to Ctrl-C and Ctrl-Z.
 - Before waiting on a foreground job the shell hands it the terminal with `tcsetpgrp()`, and takes it back once the job finishes or stops. Background jobs never get the terminal.
 - Ctrl-C kills only the foreground job. The shell then prints a newline so the next prompt starts on a clean line. Ctrl-C at an empty prompt just gives a fresh prompt.
-- Ctrl-Z stops the foreground job (seen through `waitpid(..., WUNTRACED)`). The shell adds it to the job list and prints `[job_number] + Stopped    command`.
+- Ctrl-Z stops the foreground job (seen through `waitpid(..., WUNTRACED)`). The shell adds it to the job list and prints `[job_number] + Stopped command`.
 - Ctrl-D on an empty prompt exits. If a job is Stopped, the shell prints `cshell: there are stopped jobs` and stays. A second Ctrl-D straight after that exits anyway. Ctrl-D on a half-typed line only flushes the text to `read()`, as the doubt doc describes, so the shell exits on the next Ctrl-D.
 - On any exit, the shell sends SIGHUP to the process group of every tracked job and does not wait for them.
 
