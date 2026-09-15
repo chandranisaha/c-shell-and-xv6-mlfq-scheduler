@@ -320,6 +320,246 @@ static const SyscallName syscall_names[] = {
 #ifdef SYS_faccessat2
     {SYS_faccessat2, "faccessat2"},
 #endif
+#ifdef SYS_restart_syscall
+    {SYS_restart_syscall, "restart_syscall"},
+#endif
+#ifdef SYS_statx
+    {SYS_statx, "statx"},
+#endif
+#ifdef SYS_sched_getaffinity
+    {SYS_sched_getaffinity, "sched_getaffinity"},
+#endif
+#ifdef SYS_prctl
+    {SYS_prctl, "prctl"},
+#endif
+#ifdef SYS_clone3
+    {SYS_clone3, "clone3"},
+#endif
+#ifdef SYS_pipe2
+    {SYS_pipe2, "pipe2"},
+#endif
+#ifdef SYS_dup3
+    {SYS_dup3, "dup3"},
+#endif
+#ifdef SYS_faccessat
+    {SYS_faccessat, "faccessat"},
+#endif
+#ifdef SYS_readlinkat
+    {SYS_readlinkat, "readlinkat"},
+#endif
+#ifdef SYS_unlinkat
+    {SYS_unlinkat, "unlinkat"},
+#endif
+#ifdef SYS_mkdirat
+    {SYS_mkdirat, "mkdirat"},
+#endif
+#ifdef SYS_renameat2
+    {SYS_renameat2, "renameat2"},
+#endif
+#ifdef SYS_fchdir
+    {SYS_fchdir, "fchdir"},
+#endif
+#ifdef SYS_fsync
+    {SYS_fsync, "fsync"},
+#endif
+#ifdef SYS_ftruncate
+    {SYS_ftruncate, "ftruncate"},
+#endif
+#ifdef SYS_getdents
+    {SYS_getdents, "getdents"},
+#endif
+#ifdef SYS_fchmod
+    {SYS_fchmod, "fchmod"},
+#endif
+#ifdef SYS_fchown
+    {SYS_fchown, "fchown"},
+#endif
+#ifdef SYS_umask
+    {SYS_umask, "umask"},
+#endif
+#ifdef SYS_getrlimit
+    {SYS_getrlimit, "getrlimit"},
+#endif
+#ifdef SYS_getrusage
+    {SYS_getrusage, "getrusage"},
+#endif
+#ifdef SYS_sysinfo
+    {SYS_sysinfo, "sysinfo"},
+#endif
+#ifdef SYS_times
+    {SYS_times, "times"},
+#endif
+#ifdef SYS_setpgid
+    {SYS_setpgid, "setpgid"},
+#endif
+#ifdef SYS_getpgrp
+    {SYS_getpgrp, "getpgrp"},
+#endif
+#ifdef SYS_getpgid
+    {SYS_getpgid, "getpgid"},
+#endif
+#ifdef SYS_setsid
+    {SYS_setsid, "setsid"},
+#endif
+#ifdef SYS_getsid
+    {SYS_getsid, "getsid"},
+#endif
+#ifdef SYS_setuid
+    {SYS_setuid, "setuid"},
+#endif
+#ifdef SYS_setgid
+    {SYS_setgid, "setgid"},
+#endif
+#ifdef SYS_getgroups
+    {SYS_getgroups, "getgroups"},
+#endif
+#ifdef SYS_rt_sigsuspend
+    {SYS_rt_sigsuspend, "rt_sigsuspend"},
+#endif
+#ifdef SYS_pause
+    {SYS_pause, "pause"},
+#endif
+#ifdef SYS_alarm
+    {SYS_alarm, "alarm"},
+#endif
+#ifdef SYS_setitimer
+    {SYS_setitimer, "setitimer"},
+#endif
+#ifdef SYS_getitimer
+    {SYS_getitimer, "getitimer"},
+#endif
+#ifdef SYS_tgkill
+    {SYS_tgkill, "tgkill"},
+#endif
+#ifdef SYS_waitid
+    {SYS_waitid, "waitid"},
+#endif
+#ifdef SYS_pselect6
+    {SYS_pselect6, "pselect6"},
+#endif
+#ifdef SYS_ppoll
+    {SYS_ppoll, "ppoll"},
+#endif
+#ifdef SYS_epoll_create1
+    {SYS_epoll_create1, "epoll_create1"},
+#endif
+#ifdef SYS_epoll_ctl
+    {SYS_epoll_ctl, "epoll_ctl"},
+#endif
+#ifdef SYS_epoll_wait
+    {SYS_epoll_wait, "epoll_wait"},
+#endif
+#ifdef SYS_epoll_pwait
+    {SYS_epoll_pwait, "epoll_pwait"},
+#endif
+#ifdef SYS_eventfd2
+    {SYS_eventfd2, "eventfd2"},
+#endif
+#ifdef SYS_accept
+    {SYS_accept, "accept"},
+#endif
+#ifdef SYS_accept4
+    {SYS_accept4, "accept4"},
+#endif
+#ifdef SYS_bind
+    {SYS_bind, "bind"},
+#endif
+#ifdef SYS_listen
+    {SYS_listen, "listen"},
+#endif
+#ifdef SYS_sendmsg
+    {SYS_sendmsg, "sendmsg"},
+#endif
+#ifdef SYS_recvmsg
+    {SYS_recvmsg, "recvmsg"},
+#endif
+#ifdef SYS_shutdown
+    {SYS_shutdown, "shutdown"},
+#endif
+#ifdef SYS_getsockname
+    {SYS_getsockname, "getsockname"},
+#endif
+#ifdef SYS_getpeername
+    {SYS_getpeername, "getpeername"},
+#endif
+#ifdef SYS_socketpair
+    {SYS_socketpair, "socketpair"},
+#endif
+#ifdef SYS_setsockopt
+    {SYS_setsockopt, "setsockopt"},
+#endif
+#ifdef SYS_getsockopt
+    {SYS_getsockopt, "getsockopt"},
+#endif
+#ifdef SYS_fadvise64
+    {SYS_fadvise64, "fadvise64"},
+#endif
+#ifdef SYS_sendfile
+    {SYS_sendfile, "sendfile"},
+#endif
+#ifdef SYS_splice
+    {SYS_splice, "splice"},
+#endif
+#ifdef SYS_copy_file_range
+    {SYS_copy_file_range, "copy_file_range"},
+#endif
+#ifdef SYS_fallocate
+    {SYS_fallocate, "fallocate"},
+#endif
+#ifdef SYS_utimensat
+    {SYS_utimensat, "utimensat"},
+#endif
+#ifdef SYS_fchmodat
+    {SYS_fchmodat, "fchmodat"},
+#endif
+#ifdef SYS_fchownat
+    {SYS_fchownat, "fchownat"},
+#endif
+#ifdef SYS_symlinkat
+    {SYS_symlinkat, "symlinkat"},
+#endif
+#ifdef SYS_linkat
+    {SYS_linkat, "linkat"},
+#endif
+#ifdef SYS_execveat
+    {SYS_execveat, "execveat"},
+#endif
+#ifdef SYS_clock_getres
+    {SYS_clock_getres, "clock_getres"},
+#endif
+#ifdef SYS_timerfd_create
+    {SYS_timerfd_create, "timerfd_create"},
+#endif
+#ifdef SYS_inotify_init1
+    {SYS_inotify_init1, "inotify_init1"},
+#endif
+#ifdef SYS_membarrier
+    {SYS_membarrier, "membarrier"},
+#endif
+#ifdef SYS_mlock
+    {SYS_mlock, "mlock"},
+#endif
+#ifdef SYS_sched_setaffinity
+    {SYS_sched_setaffinity, "sched_setaffinity"},
+#endif
+#ifdef SYS_capget
+    {SYS_capget, "capget"},
+#endif
+#ifdef SYS_getxattr
+    {SYS_getxattr, "getxattr"},
+#endif
+#ifdef SYS_lgetxattr
+    {SYS_lgetxattr, "lgetxattr"},
+#endif
+#ifdef SYS_fgetxattr
+    {SYS_fgetxattr, "fgetxattr"},
+#endif
+#ifdef SYS_listxattr
+    {SYS_listxattr, "listxattr"},
+#endif
+#ifdef SYS_llistxattr
+    {SYS_llistxattr, "llistxattr"},
+#endif
 };
 
 static const char *name_for(long number, char *fallback, size_t size)
@@ -338,25 +578,41 @@ static void print_summary(void)
 {
     qsort(stats, stat_count, sizeof(stats[0]), stat_compare);
 
-    printf("%-15s %-7s %s\n", "syscall", "calls", "time");
+    int width = 15;
     for (size_t index = 0; index < stat_count; index++) {
         char fallback[32];
-        printf("%-15s %-7ld %.3fs\n",
+        int length = (int)strlen(
+            name_for(stats[index].number, fallback, sizeof(fallback)));
+        if (length > width) {
+            width = length;
+        }
+    }
+
+    printf("%-*s %-7s %s\n", width, "syscall", "calls", "time");
+    for (size_t index = 0; index < stat_count; index++) {
+        char fallback[32];
+        printf("%-*s %-7ld %.3fs\n", width,
                name_for(stats[index].number, fallback, sizeof(fallback)),
                stats[index].calls, stats[index].seconds);
     }
     fflush(stdout);
 }
 
-// one stop per syscall entry and one per exit. a syscall cannot nest in a
-// single-threaded tracee, so the per-number in_call flag says which is which
-// without needing PTRACE_O_TRACESYSGOOD, which these compile flags hide.
+// one stop per syscall entry and one per exit, marked with 0x80 by
+// TRACESYSGOOD. any other stop is a signal meant for the tracee, so it is
+// passed on, except job control stops which would leave snoop waiting forever
 static void trace_loop(pid_t tracee, bool detach_on_interrupt)
 {
+    int pending_signal = 0;
+
+    (void)ptrace(PTRACE_SETOPTIONS, tracee, 0, (void *)PTRACE_O_TRACESYSGOOD);
+
     for (;;) {
-        if (ptrace(PTRACE_SYSCALL, tracee, 0, 0) != 0) {
+        if (ptrace(PTRACE_SYSCALL, tracee, 0, (void *)(long)pending_signal) !=
+            0) {
             break;
         }
+        pending_signal = 0;
 
         int status;
         pid_t waited;
@@ -385,6 +641,15 @@ static void trace_loop(pid_t tracee, bool detach_on_interrupt)
         }
 
         if (!WIFSTOPPED(status)) {
+            continue;
+        }
+
+        int stop = WSTOPSIG(status);
+        if (stop != (SIGTRAP | 0x80)) {
+            if (stop != SIGTRAP && stop != SIGSTOP && stop != SIGTSTP &&
+                stop != SIGTTIN && stop != SIGTTOU) {
+                pending_signal = stop;
+            }
             continue;
         }
 
