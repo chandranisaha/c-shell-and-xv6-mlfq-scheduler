@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Plot generation for the xv6 scheduler report (CS3.301 Mini Project 1).
 
-Produces two figures:
+Produces four figures:
 
-  mlfq_timeline.png    section 2.3.2 -- queue occupancy over time, one colour
-                       per process, with the 48-tick priority boosts marked.
+  mlfq_timeline.png    queue occupancy over time, one colour per process,
+                       with the 48-tick priority boosts marked.
   scheduler_comparison.png
-                       section 2.2 -- average turnaround, waiting and
-                       response time for FIFO, RR and MLFQ.
+                       average turnaround, waiting and response time for
+                       FIFO, RR and MLFQ on schedulertest 4 5.
+  scheduler_comparison_8_3.png
+                       the same for schedulertest 8 3.
+  waiting_by_burst.png waiting time split by burst length, both workloads.
 
 The timeline is built from the kernel's own trace output. Build with
 
@@ -33,12 +36,12 @@ from collections import defaultdict
 
 import matplotlib
 
-# Render to a file rather than a window -- this is run headless under WSL.
+# Render to a file rather than a window, since this runs headless under WSL.
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-# The part before @ in chandrani.saha@research.iiit.ac.in, as required.
+# Username watermark, as required by the TAs.
 USERNAME = "chandrani.saha"
 
 BOOST_INTERVAL = 48  # kernel/param.h
@@ -109,7 +112,7 @@ def read_trace(path):
             seen += 1
 
     if seen == 0:
-        sys.exit(f"{path}: no MLFQTRACE lines found -- was the kernel built "
+        sys.exit(f"{path}: no MLFQTRACE lines found, was the kernel built "
                  f"with TRACE=1?")
 
     return series
@@ -134,7 +137,7 @@ def plot_timeline(series, out_path):
     # at queue 0 that tells the reader nothing.
     pids = sorted(pid for pid in series if pid != 1)
     if not pids:
-        sys.exit("trace only has init in it -- run schedulertest while "
+        sys.exit("trace only has init in it, run schedulertest while "
                  "capturing")
     # tab20 pairs light and dark shades, so only use it once tab10 runs out
     palette = plt.cm.tab10 if len(pids) <= 10 else plt.cm.tab20

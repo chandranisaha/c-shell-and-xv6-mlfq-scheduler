@@ -109,7 +109,7 @@ main(int argc, char *argv[])
   }
 
   if (n > 0) {
-    printf("schedulertest: over %d processes -- ", n);
+    printf("schedulertest: over %d processes: ", n);
     print_avg("avg turnaround", sum_turn, n);
     print_avg(", avg waiting", sum_wait, n);
     print_avg(", avg response", sum_resp, n);

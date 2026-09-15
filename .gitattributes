@@ -1,9 +1,9 @@
 # xv6 gets built under WSL, so keep its tree LF no matter what the checkout
-# platform is - a Makefile or linker script with carriage returns in it will
-# not build.
+# platform is, since a Makefile or linker script with carriage returns in it
+# will not build.
 xv6/** text eol=lf
 
-# ...but that rule must not touch binaries. Git was silently applying CRLF
+# That rule must not touch binaries, though. Git was silently applying CRLF
 # conversion to the report figures and eating a byte out of each png. These
 # come after the rule above so they win.
 *.png binary

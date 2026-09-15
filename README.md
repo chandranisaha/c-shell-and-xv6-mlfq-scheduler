@@ -23,8 +23,7 @@ mini-project1/
 │   ├── plot_mlfq.py    plotting code for the report figures
 │   ├── trace.txt       MLFQ trace used for the timeline figure
 │   └── report.pdf      implementation summary, MLFQ analysis, comparison
-├── AI-usage.pdf        AI usage for the final submission
-├── AI-usage-mid.pdf    AI usage from the mid submission
+├── AI-usage.pdf        AI usage for the submission
 └── README.md
 ```
 
@@ -462,7 +461,7 @@ schedulertest [nproc] [rounds]
 schedulertest: 4 processes, 5 rounds
   pid 5 burst 1: turnaround ...  waiting ...  response ...  running ...
   ...
-schedulertest: over 4 processes -- avg turnaround ..., avg waiting ..., avg response ..., avg running ...
+schedulertest: over 4 processes: avg turnaround ..., avg waiting ..., avg response ..., avg running ...
 ```
 
 For a fair comparison, use the same arguments and the same CPU count for every scheduler.
