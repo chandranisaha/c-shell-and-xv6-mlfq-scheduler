@@ -19,9 +19,9 @@ supports persistent directory frecency, and implements command execution,
 redirection, and pipelines.
 
 Parts A through E of the C-Shell are complete and tested in WSL, checked
-line by line against every example transcript in the assignment. Part F
-(`spy` and `snoop`) is in progress. The xv6 MLFQ scheduler is complete and
-passes the kernel's own `usertests` suite.
+line by line against every example transcript in the assignment, and Part F
+(`spy` and `snoop`) is done too. The xv6 MLFQ scheduler is complete and
+passes the kernel's own `usertests` suite (see the note on `reparent` below).
 
 Implemented shell features:
 
@@ -310,21 +310,35 @@ lazy page allocation via `vmfault()`.
 ### Choosing a policy at build time
 
 ```bash
-make clean; make qemu                   # stock round robin, untouched
+make clean; make qemu                   # stock round robin (or SCHEDULER=RR)
 make clean; make qemu SCHEDULER=MLFQ    # multi-level feedback queue
 make clean; make qemu SCHEDULER=FIFO    # first come first served
 make clean; make qemu SCHEDULER=MLFQ TRACE=1   # MLFQ + queue trace output
 ```
 
-The Makefile appends `-D$(SCHEDULER)` only when the variable is set, so an
-unset `SCHEDULER` compiles the original round-robin path with no scheduler
-macro defined at all. `make clean` between policies is required — the macro
+The Makefile appends `-D$(SCHEDULER)` for MLFQ or FIFO, so an unset
+`SCHEDULER` (or `RR`) compiles the original round-robin path with no
+scheduler macro defined at all, and any other value stops the build with an
+error. `make clean` between policies is required — the macro
 is not tracked by make's dependency rules, so stale `.o` files would
 otherwise be reused.
 
 `SCHEDULER=FIFO` is an addition beyond the writeup's table: §2.2 asks for a
 FIFO column in the comparison and there is no Homework-2 FIFO scheduler in
-this repository to borrow, so one was written.
+this repository to borrow, so one was written. It is non-preemptive and
+serves a ready queue: whoever became runnable first (forked, or woke up)
+runs next, and keeps the cpu until it sleeps or exits. Being
+non-preemptive, it cannot pass `usertests`' `preempt` test, which needs a
+spinning child to be taken off the cpu.
+
+Under MLFQ, `usertests -q` passes on 1 and 3 cpus, but `reparent` run on
+its own straight after boot fails often (about half the time on 1 cpu,
+before and after the fixes below; much less on 3 cpus). The test orphans 200
+processes that init has to reap. Init gets demoted to q1 whenever it is
+running at a tick boundary, and the stream of fresh q0 forks can then keep
+it off every cpu until the next boost while zombies fill the process table.
+That is strict priority starving a low-queue process, which is what the
+48-tick boost exists to bound, so init is not special-cased.
 
 ### How the queues are represented
 
@@ -344,18 +358,25 @@ assignment usually deadlocks.
 
 | Rule | Implementation |
 |---|---|
-| New process → tail of queue 0 | `allocproc()` |
+| New process → tail of queue 0 | `allocproc()` sets queue 0, `kfork()` takes the ticket when it becomes runnable |
 | Strict priority selection | `scheduler()`, `#ifdef MLFQ` branch |
 | Exit leaves the queuing system | implicit — a ZOMBIE is never RUNNABLE |
-| Slice exhausted → drop a queue | `mlfq_tick()`, slices `{1,4,8,16}` |
+| Slice exhausted → drop a queue | `mlfq_tick()`, slices `{1,4,8,16}`; also checked in `sleep()` |
 | Queue 3 round-robin | same path — queue 3 re-tails itself |
-| Voluntary yield → tail of same queue | `mlfq_requeue()`, from `wakeup()`/`kkill()` |
+| Voluntary yield → tail of same queue | `requeue()`, from `wakeup()`/`kkill()` |
 | Boost every 48 ticks | `mlfq_boost()`, from `clockintr()` |
 | Preemption by a higher-priority arrival | `mlfq_higher_waiting()` |
 
 Preemption happens at tick boundaries, which is all §2.1.3 requires:
 `usertrap()`/`kerneltrap()` call `yield()` on a timer interrupt only when
 `mlfq_tick()` says the slice is spent or something better is waiting.
+
+Ticks are charged on cpu0 only, so on several cpus a slice can run out
+between two of the process's own timer checks. `sleep()` repeats the check
+before the process goes to sleep, otherwise sleeping at that moment would
+dodge the demotion. The scheduler also rechecks the queue and ticket of the
+process it picked once it holds its lock, and scans again if either changed
+while it was looking.
 
 Two deliberate judgement calls, both places the specification is silent:
 
@@ -373,7 +394,7 @@ Two deliberate judgement calls, both places the specification is silent:
 `procdump()` (Ctrl-P) prints the stock line plus, under MLFQ:
 
 ```
-4 run  schedulertest  q3 slice 12/16 seq 7  run 25 wait 0  boost in 21
+4 run schedulertest q3 slice 12/16 seq 7 run 25 wait 0 boost in 21
 ```
 
 queue, ticks burnt out of that queue's slice, FIFO ticket, running and
@@ -398,20 +419,26 @@ and 5). Every child repeatedly burns the CPU for a burst and then sleeps with
 `pause(1)`, as §2.3.2 asks, and each child gets a different burst length,
 cycling through 1, 40, 150 and 600 units of work. Under qemu that is roughly
 well under a tick, 2, 7 and 30 ticks, so under MLFQ the children settle in
-queues 0, 1, 2 and 3 respectively. Shorter bursters are given proportionally
-more rounds so all children stay alive for a similar time and every boost
-catches all of them. Results are reported per pid, with its burst, and
+queues 0, 1, 2 and 3 respectively (the exact tick counts depend on the host,
+so the trace is the thing to check). Shorter bursters are given
+proportionally more rounds so they are not all gone after the first boost or
+two; they still do not finish together, since waiting time differs a lot
+between them. `rounds` is capped at 100. Results are reported per pid, with its burst, and
 averaged, via `waitx`. The same arguments must be used for every scheduler
 or the comparison is meaningless.
 
 `TRACE=1` makes the kernel emit `MLFQTRACE <tick> <pid> <queue> <running?>`
-once per tick per active process. Capture the console output and feed it to
-`plot_mlfq.py`, which produces the two report figures. Tracing is off by
+once per tick for every running or runnable process; sleeping processes
+are not sampled and show up as gaps. Capture the console output and feed it
+to `plot_mlfq.py`, which produces the two report figures. Tracing is off by
 default because it does console I/O from inside the timer interrupt.
 
+Build first, so the compiler output stays out of the capture:
+
 ```bash
-make clean && make qemu SCHEDULER=MLFQ TRACE=1 CPUS=1 | tee trace.txt
-# run: schedulertest 4 5
+make clean && make SCHEDULER=MLFQ TRACE=1 CPUS=1 kernel/kernel fs.img
+make qemu SCHEDULER=MLFQ TRACE=1 CPUS=1 | tee trace.txt
+# run: schedulertest 4 5, then ctrl-a x
 python3 plot_mlfq.py trace.txt
 ```
 
