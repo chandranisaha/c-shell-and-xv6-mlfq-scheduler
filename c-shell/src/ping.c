@@ -82,10 +82,24 @@ int ping_execute(ShellState *state, const TokenList *tokens)
         return 0;
     }
 
+    int sent;
     if (target_job != NULL) {
-        (void)kill(-target_job->pgid, actual_signal);
+        sent = kill(-target_job->pgid, actual_signal);
     } else {
-        (void)kill(target_pid, actual_signal);
+        sent = kill(target_pid, actual_signal);
+        target_job = job_find_by_pid(state, target_pid);
+    }
+
+    // stop and cont always take effect, so activities can show them straight
+    // away instead of waiting for the next reap to notice
+    if (sent == 0 && (actual_signal == SIGSTOP || actual_signal == SIGCONT)) {
+        for (JobProcess *process = target_job->processes; process != NULL;
+             process = process->next) {
+            if (target_pid == 0 || process->pid == target_pid) {
+                process->stopped = actual_signal == SIGSTOP;
+            }
+        }
+        job_refresh_state(target_job);
     }
 
     printf("Sent signal %s to %s\n", signal_arg, target_arg);

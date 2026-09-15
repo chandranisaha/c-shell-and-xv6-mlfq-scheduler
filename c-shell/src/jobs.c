@@ -146,6 +146,17 @@ bool job_is_finished(const Job *job)
     return true;
 }
 
+void job_refresh_state(Job *job)
+{
+    job->state = JOB_RUNNING;
+    for (const JobProcess *process = job->processes; process != NULL;
+         process = process->next) {
+        if (process->stopped && !process->exited) {
+            job->state = JOB_STOPPED;
+        }
+    }
+}
+
 void job_update_process(Job *job, pid_t pid, int status)
 {
     if (job == NULL) {
@@ -157,9 +168,7 @@ void job_update_process(Job *job, pid_t pid, int status)
             process->status = status;
             process->exited = WIFEXITED(status) || WIFSIGNALED(status);
             process->stopped = WIFSTOPPED(status);
-            if (process->stopped) {
-                job->state = JOB_STOPPED;
-            }
+            job_refresh_state(job);
             return;
         }
     }
@@ -193,7 +202,10 @@ int jobs_reap_background(ShellState *state)
     int status;
     pid_t pid;
     int reaped = 0;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    // stops and continues too, so a ping from here or a kill from elsewhere
+    // shows up in activities
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) >
+           0) {
         Job *job = job_find_by_pid(state, pid);
         if (job == NULL) {
             continue;
