@@ -384,10 +384,16 @@ over one shared `kwait_stats()`, which reads the statistics **before**
 
 ### Measuring and plotting
 
-`user/schedulertest.c` spawns a fixed mix of CPU-bound and I/O-bound
-children and reports per-process and average figures via `waitx`. The same
-`nproc`/`work` arguments must be used for every scheduler or the comparison
-is meaningless.
+`user/schedulertest.c` takes `schedulertest [nproc] [rounds]` (defaults 4
+and 5). Every child repeatedly burns the CPU for a burst and then sleeps with
+`pause(1)`, as §2.3.2 asks, and each child gets a different burst length,
+cycling through 1, 40, 150 and 600 units of work. Under qemu that is roughly
+well under a tick, 2, 7 and 30 ticks, so under MLFQ the children settle in
+queues 0, 1, 2 and 3 respectively. Shorter bursters are given proportionally
+more rounds so all children stay alive for a similar time and every boost
+catches all of them. Results are reported per pid, with its burst, and
+averaged, via `waitx`. The same arguments must be used for every scheduler
+or the comparison is meaningless.
 
 `TRACE=1` makes the kernel emit `MLFQTRACE <tick> <pid> <queue> <running?>`
 once per tick per active process. Capture the console output and feed it to
@@ -395,8 +401,8 @@ once per tick per active process. Capture the console output and feed it to
 default because it does console I/O from inside the timer interrupt.
 
 ```bash
-make clean && make qemu SCHEDULER=MLFQ TRACE=1 | tee trace.txt
-# run: schedulertest 4 1200
+make clean && make qemu SCHEDULER=MLFQ TRACE=1 CPUS=1 | tee trace.txt
+# run: schedulertest 4 5
 python3 plot_mlfq.py trace.txt
 ```
 

@@ -1,11 +1,24 @@
-
 #include "kernel/types.h"
 #include "kernel/stat.h"
 #include "user/user.h"
 
-#define DEFAULT_PROCS 6
-#define DEFAULT_WORK  40
-#define INNER         2000000
+#define DEFAULT_PROCS  4
+#define DEFAULT_ROUNDS 5
+#define MAX_PROCS      16
+#define INNER          2000000
+
+// cpu burst per child, in burn() units, before it sleeps. a tick is roughly
+// 15-25 units under qemu, so these are well under a tick, about 2 ticks,
+// about 7 ticks and about 30 ticks: enough to settle in q0, q1, q2 and q3
+static const int bursts[] = {1, 40, 150, 600};
+
+#define NBURSTS (sizeof(bursts) / sizeof(bursts[0]))
+
+// a round is a burst plus about a tick of sleep. short bursters get more
+// rounds so every child lives about as long as the longest one, otherwise
+// they finish early and later boosts only catch the long burster
+#define TICK_UNITS 25
+#define LONGEST    600
 
 static void
 burn(int units)
@@ -29,17 +42,23 @@ int
 main(int argc, char *argv[])
 {
   int nproc = argc > 1 ? atoi(argv[1]) : DEFAULT_PROCS;
-  int work = argc > 2 ? atoi(argv[2]) : DEFAULT_WORK;
+  int rounds = argc > 2 ? atoi(argv[2]) : DEFAULT_ROUNDS;
+  int pids[MAX_PROCS];
+  int burst_of[MAX_PROCS];
   int started = 0;
 
   if (nproc <= 0)
     nproc = DEFAULT_PROCS;
-  if (work <= 0)
-    work = DEFAULT_WORK;
+  if (nproc > MAX_PROCS)
+    nproc = MAX_PROCS;
+  if (rounds <= 0)
+    rounds = DEFAULT_ROUNDS;
 
-  printf("schedulertest: %d processes, work=%d\n", nproc, work);
+  printf("schedulertest: %d processes, %d rounds\n", nproc, rounds);
 
   for (int i = 0; i < nproc; i++) {
+    int burst = bursts[i % NBURSTS];
+    int my_rounds = rounds * (LONGEST + TICK_UNITS) / (burst + TICK_UNITS);
     int pid = fork();
 
     if (pid < 0) {
@@ -48,24 +67,16 @@ main(int argc, char *argv[])
     }
 
     if (pid == 0) {
-      if (i % 2 == 0) {
-
-        burn(work);
-      } else {
-
-        int cycles = work / 5;
-
-        if (cycles < 1)
-          cycles = 1;
-
-        for (int k = 0; k < cycles; k++) {
-          burn(1);
-          pause(1);
-        }
+      // burst, then give the cpu up voluntarily, over and over
+      for (int r = 0; r < my_rounds; r++) {
+        burn(burst);
+        pause(1);
       }
       exit(0);
     }
 
+    pids[started] = pid;
+    burst_of[started] = burst;
     started++;
   }
 
@@ -73,12 +84,19 @@ main(int argc, char *argv[])
 
   for (int i = 0; i < started; i++) {
     int turnaround = 0, waiting = 0, response = 0, running = 0;
+    int pid = waitx(&turnaround, &waiting, &response, &running);
 
-    if (waitx(&turnaround, &waiting, &response, &running) < 0)
+    if (pid < 0)
       break;
 
-    printf("  child %d: turnaround %d  waiting %d  response %d  running %d\n",
-           n, turnaround, waiting, response, running);
+    int burst = 0;
+    for (int j = 0; j < started; j++)
+      if (pids[j] == pid)
+        burst = burst_of[j];
+
+    printf("  pid %d burst %d: turnaround %d  waiting %d  response %d  "
+           "running %d\n",
+           pid, burst, turnaround, waiting, response, running);
 
     sum_turn += turnaround;
     sum_wait += waiting;
