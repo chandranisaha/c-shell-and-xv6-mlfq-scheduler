@@ -179,12 +179,14 @@ void
 clockintr()
 {
   if (cpuid() == 0) {
+    // charge the tick that just ended before waking anyone, so a process
+    // that slept through it is counted as asleep rather than as waiting
+    update_time();
+
     acquire(&tickslock);
     ticks++;
     wakeup(&ticks);
     release(&tickslock);
-
-    update_time();
 
 #ifdef MLFQ
     if (ticks % BOOST_INTERVAL == 0)

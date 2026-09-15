@@ -46,9 +46,9 @@ NQUEUE = 4           # kernel/param.h
 # Measured with `schedulertest 6 200` on a single cpu, the same workload run
 # under each scheduler in turn. Ticks.
 COMPARISON = {
-    "FIFO": {"turnaround": 64.16, "waiting": 55.16, "response": 26.50},
-    "RR":   {"turnaround": 69.00, "waiting": 59.16, "response": 1.50},
-    "MLFQ": {"turnaround": 50.33, "waiting": 39.83, "response": 1.50},
+    "FIFO": {"turnaround": 38.50, "waiting": 14.66, "response": 11.16},
+    "RR":   {"turnaround": 40.16, "waiting": 16.16, "response": 1.50},
+    "MLFQ": {"turnaround": 33.33, "waiting": 9.00, "response": 1.50},
 }
 
 
@@ -119,12 +119,19 @@ def plot_timeline(series, out_path):
     for colour, pid in zip(colours, pids):
         ticks, queues = series[pid]
         nudged = [q + offsets[pid] for q in queues]
-        # steps-post: a process sits in its queue until the moment it moves,
-        # so the line should hold flat and then jump, not slope between
-        # samples. Gaps are real -- an io-bound process is not in the queuing
-        # network while it sleeps.
-        plt.step(ticks, nudged, where="post", color=colour, linewidth=1.6,
-                 label=f"pid {pid}", alpha=0.85)
+
+        # a sleeping process is not sampled, so only join samples from
+        # consecutive ticks; a gap means it was out of the queuing network
+        runs = [[0]]
+        for i in range(1, len(ticks)):
+            if ticks[i] - ticks[i - 1] <= 1:
+                runs[-1].append(i)
+            else:
+                runs.append([i])
+        for n, run in enumerate(runs):
+            plt.step([ticks[i] for i in run], [nudged[i] for i in run],
+                     where="post", color=colour, linewidth=1.6, alpha=0.85,
+                     label=f"pid {pid}" if n == 0 else None)
         plt.scatter(ticks, nudged, color=colour, s=9, alpha=0.55)
 
     plt.yticks(range(NQUEUE), [f"Q{q}" for q in range(NQUEUE)])
@@ -133,7 +140,9 @@ def plot_timeline(series, out_path):
     plt.ylabel("Queue")
     plt.title("xv6 MLFQ: queue occupancy over time")
     plt.grid(axis="y", alpha=0.3)
-    plt.legend(loc="lower right", fontsize=8, ncol=2)
+    # below the axes, so it covers neither the data nor the watermark
+    plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), fontsize=8,
+               ncol=5, frameon=False)
 
     watermark()
 
