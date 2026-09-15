@@ -89,11 +89,16 @@ CFLAGS += -fno-pie -nopie
 endif
 
 # which scheduling policy to compile in. leaving SCHEDULER unset builds the
-# stock round-robin path untouched, which is what the writeup asks for as the
-# default. SCHEDULER=MLFQ or SCHEDULER=FIFO defines that name for the #ifdefs
-# in proc.c and trap.c.
+# stock round-robin policy, which is what the writeup asks for as the default;
+# it only gains the timing fields waitx reports. SCHEDULER=MLFQ or
+# SCHEDULER=FIFO defines that name for the #ifdefs in proc.c and trap.c.
 ifdef SCHEDULER
+ifeq ($(filter $(SCHEDULER),MLFQ FIFO RR),)
+$(error SCHEDULER must be MLFQ, FIFO or RR, not $(SCHEDULER))
+endif
+ifneq ($(SCHEDULER),RR)
 CFLAGS += -D$(SCHEDULER)
+endif
 endif
 
 # TRACE=1 makes an MLFQ kernel print one line per tick per active process,
