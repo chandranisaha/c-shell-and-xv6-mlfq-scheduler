@@ -52,6 +52,29 @@ COMPARISON = {
     "MLFQ": {"turnaround": 197.00, "waiting": 75.25, "response": 0.75},
 }
 
+# Same, with `schedulertest 8 3`: two children per burst length.
+COMPARISON_8_3 = {
+    "FIFO": {"turnaround": 308.63, "waiting": 236.25, "response": 17.75},
+    "RR":   {"turnaround": 327.00, "waiting": 253.88, "response": 2.25},
+    "MLFQ": {"turnaround": 239.13, "waiting": 166.88, "response": 2.25},
+}
+
+# Waiting ticks per burst length from the same runs; for `8 3` each value is
+# the mean of the two children with that burst.
+BURSTS = [1, 40, 150, 600]
+WAITING_BY_BURST = {
+    "4 5": {
+        "FIFO": [219, 202, 131, 40],
+        "RR":   [153, 135, 159, 161],
+        "MLFQ": [6, 29, 116, 150],
+    },
+    "8 3": {
+        "FIFO": [314.5, 281.5, 225.5, 123.5],
+        "RR":   [256.0, 217.0, 275.0, 267.5],
+        "MLFQ": [10.0, 103.0, 284.5, 270.0],
+    },
+}
+
 
 def watermark():
     """Stamp the author's username on the current axes, per the TAs' note."""
@@ -95,11 +118,14 @@ def read_trace(path):
 def plot_timeline(series, out_path):
     plt.figure(figsize=(11, 5))
 
+    first_tick = min(min(ticks) for pid, (ticks, _) in series.items()
+                     if pid != 1) if len(series) > 1 else 0
     last_tick = max(max(ticks) for ticks, _ in series.values())
+    first_boost = -(-first_tick // BOOST_INTERVAL) * BOOST_INTERVAL
 
     # Mark every priority boost. Labelled once so the legend stays readable.
-    for n, boost in enumerate(range(BOOST_INTERVAL, last_tick + 1,
-                                    BOOST_INTERVAL)):
+    for n, boost in enumerate(range(max(first_boost, BOOST_INTERVAL),
+                                    last_tick + 1, BOOST_INTERVAL)):
         plt.axvline(boost, color="black", linestyle=":", linewidth=1,
                     alpha=0.45,
                     label="priority boost (every 48 ticks)" if n == 0 else None)
@@ -158,8 +184,9 @@ def plot_timeline(series, out_path):
     print(f"wrote {out_path}")
 
 
-def plot_comparison(out_path):
-    schedulers = list(COMPARISON)
+def plot_comparison(out_path, data=COMPARISON,
+                    title="Scheduler comparison: schedulertest 4 5, single cpu"):
+    schedulers = list(data)
     metrics = ["turnaround", "waiting", "response"]
     width = 0.25
 
@@ -167,7 +194,7 @@ def plot_comparison(out_path):
 
     for n, metric in enumerate(metrics):
         positions = [i + (n - 1) * width for i in range(len(schedulers))]
-        values = [COMPARISON[s][metric] for s in schedulers]
+        values = [data[s][metric] for s in schedulers]
         bars = plt.bar(positions, values, width, label=metric.capitalize())
         for bar, value in zip(bars, values):
             plt.text(bar.get_x() + bar.get_width() / 2, value + 0.8,
@@ -175,16 +202,46 @@ def plot_comparison(out_path):
 
     plt.xticks(range(len(schedulers)), schedulers)
     plt.ylabel("Ticks (lower is better)")
-    plt.title("Scheduler comparison: identical workload, single cpu")
+    plt.title(title)
     # Headroom plus a left-hand legend, so neither the bars nor the legend
     # box sit on top of the watermark in the top-right corner.
-    tallest = max(v for s in COMPARISON.values() for v in s.values())
+    tallest = max(v for s in data.values() for v in s.values())
     plt.ylim(0, tallest * 1.22)
     plt.legend(loc="upper left")
     plt.grid(axis="y", alpha=0.3)
 
     watermark()
 
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    print(f"wrote {out_path}")
+
+
+def plot_waiting_by_burst(out_path):
+    """Who pays for each policy: waiting time split by burst length."""
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), sharey=True)
+    width = 0.27
+
+    for ax, (workload, data) in zip(axes, WAITING_BY_BURST.items()):
+        plt.sca(ax)
+        for n, scheduler in enumerate(data):
+            positions = [i + (n - 1) * width for i in range(len(BURSTS))]
+            bars = ax.bar(positions, data[scheduler], width, label=scheduler)
+            for bar, value in zip(bars, data[scheduler]):
+                ax.text(bar.get_x() + bar.get_width() / 2, value + 3,
+                        f"{value:g}", ha="center", fontsize=7)
+        ax.set_xticks(range(len(BURSTS)))
+        ax.set_xticklabels([f"burst {b}" for b in BURSTS])
+        ax.set_title(f"schedulertest {workload}")
+        ax.grid(axis="y", alpha=0.3)
+        tallest = max(v for values in data.values() for v in values)
+        ax.set_ylim(0, tallest * 1.35)
+        ax.legend(loc="upper left", ncol=3, fontsize=8)
+        watermark()
+
+    axes[0].set_ylabel("Waiting ticks (lower is better)")
+    fig.suptitle("Waiting time by CPU burst length, single cpu")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -202,6 +259,10 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     plot_comparison(os.path.join(args.out_dir, "scheduler_comparison.png"))
+    plot_comparison(os.path.join(args.out_dir, "scheduler_comparison_8_3.png"),
+                    COMPARISON_8_3,
+                    "Scheduler comparison: schedulertest 8 3, single cpu")
+    plot_waiting_by_burst(os.path.join(args.out_dir, "waiting_by_burst.png"))
 
     if os.path.exists(args.trace):
         plot_timeline(read_trace(args.trace),
