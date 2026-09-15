@@ -240,13 +240,21 @@ int spy_execute(const ShellState *state, const TokenList *tokens)
         return 0;
     }
 
-    printf("PID    FD    TYPE   PATH\n");
-
     char proc_path[PATH_MAX];
     char target[PATH_MAX];
 
+    // another user's process: /proc hides everything, so say so rather than
+    // printing a bare header
     snprintf(proc_path, sizeof(proc_path), "/proc/%ld/cwd", pid);
-    if (read_proc_link(proc_path, target, sizeof(target))) {
+    bool have_cwd = read_proc_link(proc_path, target, sizeof(target));
+    if (!have_cwd && errno == EACCES) {
+        fprintf(stderr, "spy: permission denied\n");
+        return 0;
+    }
+
+    printf("PID    FD    TYPE   PATH\n");
+
+    if (have_cwd) {
         print_row(pid, "cwd", type_of_proc_entry(proc_path), target);
     }
 
