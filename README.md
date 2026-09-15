@@ -1,476 +1,527 @@
-# CS3.301 OSN Mini Project 1
+# CS3.301 Mini Project 1: C-Shell and xv6 Scheduling
 
-Name: Chandrani Saha
-Roll number: 2024113002
+Chandrani Saha, Roll No. 2024113002
 
-This repository contains both halves of the CS3.301 Operating Systems and
-Networks mini-project: a C-Shell written from scratch, and an MLFQ
-scheduling policy added to the xv6-riscv kernel. The two are independent —
-the shell is an ordinary POSIX program in `c-shell/`, the scheduler is
-kernel code in `xv6/` — and they share nothing but this repository.
+This repository has the two halves of the mini project:
+
+- **`c-shell/`**, a POSIX shell written from scratch in C, covering Parts A to F (input and parsing, intrinsics, redirection and pipes, sequential and background execution, job control, and the `spy` and `snoop` process tools).
+- **`xv6/`**, xv6-riscv with a multi-level feedback queue scheduler, a FIFO scheduler for comparison, a `waitx` system call, a `schedulertest` workload, a plotting script, and the scheduler report (`xv6/report.pdf`).
+
+## Repository structure
+
+```text
+mini-project1/
+├── c-shell/
+│   ├── src/            shell source files
+│   ├── include/        headers
+│   └── Makefile        make all builds shell.out
+├── xv6/
+│   ├── kernel/         scheduler, waitx and procdump changes
+│   ├── user/           schedulertest and the waitx user stub
+│   ├── mkfs/
+│   ├── Makefile        SCHEDULER, TRACE and CPUS build options
+│   ├── plot_mlfq.py    plotting code for the report figures
+│   ├── trace.txt       MLFQ trace used for the timeline figure
+│   └── report.pdf      implementation summary, MLFQ analysis, comparison
+├── AI-usage.pdf        AI usage for the final submission
+├── AI-usage-mid.pdf    AI usage from the mid submission
+└── README.md
+```
+
+The rest of `xv6/` (`LICENSE`, `README`, `test-xv6.py` and the dotfiles) comes unchanged from upstream xv6.
 
 ## C-Shell
 
-I implemented the C-Shell as a small POSIX-oriented command interpreter in C.
-It reads one command line at a time, tokenizes and validates the complete line,
-then dispatches valid commands to shell intrinsics or external executables.
-The shell maintains its own working-directory state, displays a custom prompt,
-supports persistent directory frecency, and implements command execution,
-redirection, and pipelines.
+The C-Shell is a small interactive shell I wrote from scratch in C, using only
+POSIX headers and functions. It reads one line at a time, tokenizes it and
+checks it against the grammar from the assignment, and only then runs it. It
+supports its own set of intrinsics (`hop`, `reveal`, `peek`, `locate`,
+`activities`, `resume`, `ping`, `spy`, `snoop`), runs external programs with
+`execve()`, and handles redirection, pipes, sequential and background
+execution, and job control.
 
-Parts A through E of the C-Shell are complete and tested in WSL, checked
-line by line against every example transcript in the assignment, and Part F
-(`spy` and `snoop`) is done too. The xv6 MLFQ scheduler is complete and
-passes the kernel's own `usertests` suite (see the note on `reparent` below).
+### Build and run
 
-Implemented shell features:
-
-- A1: prompt with username, hostname, current path, and launch-directory `~`
-  abbreviation.
-- A2: interactive line input, repeated prompts, whitespace preservation, and
-  EOF handling.
-- A3: lexer and parser for words, quoting, escaping, pipes, redirections,
-  semicolons, and background syntax validation.
-- B1: `hop` with home, previous-directory, relative/absolute paths, and
-  deterministic persistent frecency fallback.
-- B2: `reveal` with `-a`, `-t`, combined flags, sorting, recursion, and
-  directory resolution.
-- B3: `peek` with `-n`, `-r`, multiple files, standard input, fixed-size
-  reverse reads for regular files, and exact error handling.
-- B4: `locate` with current-directory priority, ordered `PATH` search, all
-  executable matches, absolute non-canonicalized paths, and missing-command
-  reporting.
-- C1: foreground execution of relative, absolute, PATH, and `%name` commands.
-- C2: multiple input redirections concatenated in command-line order.
-- C3: truncating/appending output redirection, multiple output targets, and
-  input/output combinations.
-- C4: multi-stage pipelines with one child per stage and failed-stage
-  continuation.
-- D1: sequential execution (`command1 ; command2 ; ... ; commandN`) executed
-  in order, waiting on each stage, and halting on unresolvable commands.
-- D2: background execution (`command1 & command2 & ... & commandN &`) with
-  session-wide monotonic job numbering, child process groups, terminal isolation,
-  SIGCHLD reaping via `waitpid(WNOHANG)`, and normal/abnormal exit status reporting.
-  A command trailing the last `&` with no `&` of its own runs in the
-  foreground, per the A3 grammar (`BG -> WORD ARG`, no operator required) and
-  the assignment's own `sleep 1 & sleep 2 & cat` example. Background
-  completions are reported once per main-loop iteration, immediately
-  before the next prompt is drawn, so a message never lands mid-line while
-  the user is typing. The `[job_number] pid` line is guaranteed to print
-  before any of the background command's own output, using a
-  synchronisation pipe that holds every child at the starting line until
-  the parent has printed and flushed it. Requirement 13 ("background
-  processes must not have access to the terminal for input") is satisfied
-  by process-group isolation rather than by redirecting stdin: a background
-  group that reads the terminal is sent `SIGTTIN` by the kernel and stops
-  before it can consume a byte, which keeps the job alive and listable in
-  `activities` — the E1/E4 examples depend on `cat | sort &` still being
-  there afterwards.
-- E1: `activities` lists every tracked process group, oldest first, one
-  `[job_number] pgid <pgid>` line followed by an indented `<pid> <name>
-  <state>` line per still-running process, reaping already-exited processes
-  before printing so finished ones never show up.
-- E2 (Ctrl-C/Ctrl-Z): the shell gives `SIGINT` a flag-only handler and
-  ignores `SIGTSTP`/`SIGTTOU` for itself, so none of the three can kill or
-  suspend it, and hands the controlling terminal to a foreground job's process
-  group via `tcsetpgrp()` before waiting on it (reclaiming it afterward), so
-  Ctrl-C interrupts only the foreground job and Ctrl-Z stops it with
-  `waitpid(..., WUNTRACED)`, printing `[job_number] + Stopped    <command>`
-  and registering it as a tracked job (visible in `activities`) before
-  returning to the prompt. Background jobs are never handed the terminal, so
-  they're unaffected by either. Stopping a command partway through a `;`
-  sequence halts the rest of that sequence, the same as an unresolved
-  command does. If a foreground command is killed by an uncaught signal
-  (Ctrl-C being the common case), a newline is printed before returning to
-  the prompt so it always starts on a fresh line, even if the command was
-  interrupted mid-line with no trailing output of its own — not written
-  down anywhere in `rules.md`, but matches real shells' own behavior; a
-  normally-exited command is left alone, no extra newline added.
-- E2 (Ctrl-D/exit): Ctrl-D exits whenever it makes `read()` return 0 —
-  which, in canonical mode, means an empty line buffer. On a half-typed
-  line the first Ctrl-D only flushes what was typed (`read()` returns those
-  bytes, not 0), so the shell stays; a second Ctrl-D is then on an empty
-  buffer and exits, discarding the half-typed text rather than running it.
-  Off a terminal there is no Ctrl-D, so a final line with no trailing
-  newline is still executed rather than dropped. Ctrl-D exits unless a job
-  is currently Stopped, in which case it prints
-  `cshell: there are stopped jobs` and
-  returns to the prompt instead — pressing Ctrl-D again right away (no other
-  input typed in between) exits anyway. Whenever the shell exits with any
-  background or stopped job still tracked, every one of them gets `SIGHUP`
-  sent to its process group first, without waiting for them to react.
-- E3: `resume %job_number (fg [--timeout <seconds>] | bg)` sends `SIGCONT`
-  to the job's process group and marks it Running either way. `bg` prints
-  `[N] + Running    <command>` and returns immediately. `fg` prints the
-  job's command line, hands it the terminal, and waits — re-printing
-  `[N] + Stopped    <command>` if it stops again, silently dropping it from
-  tracking if it finishes on its own (a resumed foreground job's normal
-  completion isn't reported, same as any other foreground command). With
-  `--timeout <seconds>`, an unfinished job gets `SIGTERM` and `resume: job
-  timed out` when the timer expires, with the pending timer always
-  cancelled once the job is no longer being waited on.
-- E4: `ping <target> <signal_number>` validates the signal number (a
-  non-negative integer, checked *before* the target is ever looked up) and
-  sends `signal_number % 64` to the target — a plain number is a pid
-  (signal goes to just that process), a `%`-prefixed number is a job
-  (signal goes to its whole process group). Only pids/jobs this shell
-  itself spawned and is still tracking can be targeted — a pid that merely
-  exists on the system is reported as `ping: no such process found`. The
-  success message always echoes the originally typed numbers verbatim, not
-  the reduced signal value. Stops and continues show up in `activities`:
-  the reaper also collects `WUNTRACED`/`WCONTINUED` statuses, and a
-  `SIGSTOP` or `SIGCONT` sent through `ping` updates the job straight away.
-- F1: `spy [pid]` lists a process's open files the way `lsof` does, reading
-  `/proc`. Rows come out in the order the writeup's example shows: `cwd`,
-  `txt` (the executable), one `mem` row per **unique** memory-mapped file,
-  then numeric descriptors ascending. `maps` carries one line per segment,
-  so each library appears four or five times and has to be deduplicated;
-  the executable is excluded from `mem` because it is already listed as
-  `txt`. Types come from `stat()` on the `/proc` entry rather than on the
-  resolved string, which is what makes a pipe report `FIFO` even though
-  `pipe:[171837]` is not a path. With no argument it reports the shell
-  itself, using a pid recorded at startup so the answer does not change
-  when the builtin runs in a forked child because of redirection or a
-  pipeline. Another user's process (pid 1, say) hides its `/proc` links, so
-  that prints `spy: permission denied` instead of an empty table.
-- F2: `snoop command [args...]` forks, calls `PTRACE_TRACEME` in the child
-  and `execve`s; `snoop -p pid` uses `PTRACE_ATTACH`. Either way the tracer
-  loops on `PTRACE_SYSCALL`, timing each call from its entry stop to its
-  exit stop with `CLOCK_MONOTONIC`, and prints a summary sorted by call
-  count with ties broken by first occurrence. Syscalls outside the name
-  table print as `syscall_N`, as the spec requires. Calls are counted at
-  *entry*, so `exit_group` — which never returns — still appears once with
-  0.000s, matching the writeup's example. `PTRACE_O_TRACESYSGOOD` marks
-  syscall stops, so any other stop is a real signal and is passed on to the
-  tracee: Ctrl-C kills a snooped command as it would without snoop. Job
-  control stops (Ctrl-Z) are not passed on, since a stopped tracee would
-  leave the shell blocked in snoop. With `-p`, Ctrl-C detaches instead and
-  prints what was collected. Attaching only works on the shell's own
-  descendants when `ptrace_scope` is 1, which is the WSL default.
-
-## Architecture and design choices
-
-The shell is split by responsibility rather than implemented as one monolithic
-source file:
-
-```text
-main.c
-  -> input.c
-  -> lexer.c -> token.c
-  -> parser.c -> command.c
-  -> sequence.c
-  -> builtin.c
-       -> hop.c -> path_utils.c -> frecency.c
-       -> reveal.c
-       -> peek.c
-       -> locate.c
-       -> activities.c -> jobs.c
-  -> exec.c -> exec_parse.c -> exec_resolver.c
-                       -> exec_redir.c
-  -> jobs.c
-  -> signals.c
-```
-
-Important implementation decisions:
-
-1. `ShellState` stores the immutable launch directory as shell home and the
-   previous directory used by `hop -` and `reveal -`.
-2. Input is read with POSIX `read()` so `peek -` can consume standard input
-   without conflicting with buffered stdio input.
-3. The lexer performs maximal-munch tokenization and resolves quoting and
-   escaping before parsing. The parser validates the complete line before any
-   command executes.
-4. Directory-changing built-ins run in the parent process. Built-ins used with
-   redirection or inside a pipeline run in a child copy, because a child cannot
-   change the parent shell's directory.
-5. C1 resolves executable paths explicitly and invokes `execve()` directly;
-   `system()` and `popen()` are not used.
-6. C2 uses a feeder process to stream multiple input files in order. C3 uses a
-   fan-out process so every output target receives the complete command output.
-7. C4 creates one POSIX pipe per `|`, forks one child per pipeline stage, closes
-   unused descriptors, applies explicit redirections after pipe connections,
-   and waits for every stage and helper process.
-8. The implementation is compiled with the assignment's C23/POSIX feature
-   definitions and warning-as-error flags.
-9. `signals.c` installs a minimal `SIGCHLD` handler that only sets a
-   `volatile sig_atomic_t` flag (no `printf`/`malloc` inside the handler).
-   `jobs.c` does the real reaping (`waitpid(-1, ..., WNOHANG)` in a loop)
-   from normal shell code, in exactly one place: the top of the main loop,
-   immediately before `prompt_print()`. That is bash's own arrangement —
-   reap on the signal, report just before the next prompt is drawn — and it
-   means a completion message can never land in the middle of a line the
-   user is halfway through typing. `input_read_line()` deliberately does
-   nothing on `EINTR` but resume the `read()`, leaving the kernel's line
-   buffer untouched so the interruption is invisible. Printing from the
-   `EINTR` branch instead (the earlier approach) cannot be made correct
-   here: the terminal is in canonical mode, so text typed on the current
-   line has been echoed by the kernel but not yet delivered to the shell,
-   and there is no way to redraw what we cannot see. The trade-off is that
-   sitting idle at the prompt you won't see the message until you press
-   Enter — same as bash.
-10. `activities` is dispatched through the same `builtin_execute`/
-    `is_builtin_name` path as `hop`/`reveal`/`peek`/`locate`, so it also works
-    combined with redirection or inside a pipeline (which run it in a forked
-    child — harmless here since it only reads job state, never mutates it).
-    It reuses `jobs_reap_background` to drop already-exited processes before
-    printing, and relies on the job list already being maintained in launch
-    order (`job_add` appends at the tail) to print oldest group first.
-11. E2 pairs `signals_ignore_terminal()` (shell process, at startup) with
-    `signals_restore_terminal_defaults()` (every forked child, right after
-    `setpgid()`, before it execve()s or runs a builtin). This second call is
-    load-bearing, not decorative: `fork()` inherits the parent's `SIG_IGN`
-    disposition, and `execve()` does not reset an already-ignored signal
-    back to default, so without it every foreground job would silently
-    inherit the shell's own ignore-disposition and become permanently immune
-    to Ctrl-C/Ctrl-Z. Redirection helper (feeder/fan-out) processes are
-    deliberately left un-waited-on if the job they serve gets stopped, since
-    they aren't part of the job's process group and a writer blocked on a
-    full pipe would otherwise hang the shell; they're still reaped without
-    leaking zombies by the existing generic `jobs_reap_background` sweep.
-12. The `SIGHUP`-on-exit broadcast lives inside `shell_state_destroy()`
-    itself rather than at each of `main.c`'s several exit points, since that
-    function was already the one thing called on every exit path — one
-    place to get right instead of several places to remember. Note that a
-    *stopped* (not just backgrounded) job doesn't necessarily die from this
-    immediately: POSIX only wakes a stopped process for `SIGCONT`/`SIGKILL`,
-    so `SIGHUP` alone can leave it parked until something continues it —
-    `rules.md` only requires sending the signal without waiting, not
-    guaranteeing termination, so no extra `SIGCONT` was added.
-13. **Bug fix:** `execute_part_c` used to call `builtin_execute()`
-    unconditionally in the parent before checking whether redirection was
-    present, then — if redirection *was* present — also ran it a second time
-    correctly redirected in the forked child. Every builtin combined with
-    redirection ran twice; for `peek < file` with no filename argument this
-    meant the first (erroneous) call read from the shell's own real stdin
-    before the file was ever connected, with visibly wrong output. Fixed by
-    splitting "is this a builtin" (a pure name check, no side effects) from
-    actually calling `builtin_execute()`, which now happens in exactly one
-    place depending on whether redirection is present. See `DESIGN_LOG.md`
-    (`bug-001`) for the full diagnosis — caught by finally reading fixture
-    *output*, not just exit codes.
-14. `give_terminal()` (`exec.c`) and `job_remove()` (`jobs.c`) were promoted
-    from `static`/E2-only to shared, exported helpers so `resume.c` could
-    reuse the exact same terminal-handoff and job-list-removal logic rather
-    than duplicating it. `resume`'s own `--timeout` handling adds a third
-    minimal flag-only signal handler (`signals_install_alarm()` for
-    `SIGALRM`) following the same pattern `SIGCHLD`'s handler already used.
-15. `ping`'s ownership rule ("only pids/jobs this shell spawned") falls out
-    of reusing `jobs.c`'s existing `job_find_by_pid()`/`job_find_by_number()`
-    rather than needing any new checking logic — those functions only ever
-    search this shell's own tracked job table, so a pid that merely exists
-    on the system (verified against real pid `1`) naturally never matches
-    and is correctly reported as unknown.
-16. **Consistency fix:** neither `execute_part_c()` nor `execute_pipeline()`
-    used to distinguish a foreground child dying from an uncaught signal
-    (`WIFSIGNALED`) from one that exited normally — both `printf()`ed
-    nothing and just returned. Since nothing else ever checks whether the
-    terminal is at column 0 before printing the next prompt
-    (`prompt_print()` is an unconditional `printf`, no leading newline, no
-    cursor-position awareness), a Ctrl-C that landed before the interrupted
-    command's own output happened to end in `\n` left the next prompt
-    glued directly onto it. Added an identical `WIFSIGNALED` check — print
-    one `\n` before returning — to both foreground wait paths (a pipeline
-    can have multiple processes, so `execute_pipeline()` tracks one
-    `any_signaled` flag across the whole wait loop rather than printing per
-    process). See `DESIGN_LOG.md` (`e2-003`) for the full trace, including
-    why this specific case doesn't show up for a normal exit.
-
-17. **Bug fix:** a builtin used with redirection or inside a pipeline runs
-    in a forked child that finishes with `_exit()`, which deliberately
-    skips stdio flushing. That is invisible while stdout is a terminal
-    (stdio is line buffered, so every newline pushes the line out), but the
-    moment stdout is a pipe or a file stdio switches to fully buffered and
-    `_exit()` discards the lot - `reveal > out.txt` wrote a 0-byte file,
-    `reveal | peek` and `echo hi | peek -n` printed nothing. `peek` without
-    `-n` was unaffected only because it writes with raw `write()` rather
-    than stdio. Both child call sites now go through a shared
-    `run_builtin_child()` helper in `exec.c` that flushes every stream
-    before exiting and reports a failed flush as a failed command. See
-    `DESIGN_LOG.md` (`dd-011`).
-18. **Bug fix:** `prompt_print()` treated a failed `printf`/`fflush` as
-    fatal, and `main()` responds to that by exiting. Since no handler in
-    this shell uses `SA_RESTART` - `input_read_line()` depends on `read()`
-    returning `EINTR` - the `write()` behind that flush can legitimately
-    fail with `EINTR` whenever a child changes state at the wrong instant,
-    which `resume %job bg` reproduces (the `SIGCONT` it sends comes back as
-    a `SIGCHLD` microseconds later). The flush is now retried while
-    `errno == EINTR`; the prompt carries no trailing newline, so nothing has
-    been written when the first attempt is interrupted and the retry sends
-    the queued bytes exactly once. See `DESIGN_LOG.md` (`dd-012`).
-
-## xv6: the MLFQ scheduler
-
-`xv6/` holds MIT's xv6-riscv (revision `9e3161a9`) with a Multi-Level
-Feedback Queue scheduling policy added alongside the stock round-robin one.
-Note this is a *recent* xv6 revision, not the one most MLFQ write-ups
-assume: the kernel prints with `printk()` rather than `printf()`, process
-exit is `kexit()`, the sleep syscall is spelled `pause()`, and there is
-lazy page allocation via `vmfault()`.
-
-### Choosing a policy at build time
+The shell is meant for Linux (I developed and ran it in WSL).
 
 ```bash
-make clean; make qemu                   # stock round robin (or SCHEDULER=RR)
-make clean; make qemu SCHEDULER=MLFQ    # multi-level feedback queue
-make clean; make qemu SCHEDULER=FIFO    # first come first served
-make clean; make qemu SCHEDULER=MLFQ TRACE=1   # MLFQ + queue trace output
+cd c-shell
+make all        # builds shell.out in c-shell/
+./shell.out
 ```
 
-The Makefile appends `-D$(SCHEDULER)` for MLFQ or FIFO, so an unset
-`SCHEDULER` (or `RR`) compiles the original round-robin path with no
-scheduler macro defined at all, and any other value stops the build with an
-error. `make clean` between policies is required — the macro
-is not tracked by make's dependency rules, so stale `.o` files would
-otherwise be reused.
+Press Ctrl-D at an empty prompt to exit. `make clean` removes the `build/`
+directory and `shell.out`.
 
-`SCHEDULER=FIFO` is an addition beyond the writeup's table: §2.2 asks for a
-FIFO column in the comparison and there is no Homework-2 FIFO scheduler in
-this repository to borrow, so one was written. It is non-preemptive and
-serves a ready queue: whoever became runnable first (forked, or woke up)
-runs next, and keeps the cpu until it sleeps or exits. Being
-non-preemptive, it cannot pass `usertests`' `preempt` test, which needs a
-spinning child to be taken off the cpu.
+The required compiler flags are already in the Makefile:
+`-std=c23 -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -Wall -Wextra -Werror -Wno-unused-parameter -fno-asm`.
 
-Under MLFQ, `usertests -q` passes on 1 and 3 cpus, but `reparent` run on
-its own straight after boot fails often (about half the time on 1 cpu,
-before and after the fixes below; much less on 3 cpus). The test orphans 200
-processes that init has to reap. Init gets demoted to q1 whenever it is
-running at a tick boundary, and the stream of fresh q0 forks can then keep
-it off every cpu until the next boost while zombies fill the process table.
-That is strict priority starving a low-queue process, which is what the
-48-tick boost exists to bound, so init is not special-cased.
+### Code layout
 
-### How the queues are represented
+Every `src/*.c` file has a matching header in `include/` (the `exec_*.c`
+files all share `exec.h`, and `builtin.h` declares the intrinsic entry points).
 
-There are no linked lists. Each process carries two numbers — `queue`
-(0–3) and `enter_seq`, a ticket drawn from a global monotonic counter — and
-the scheduler picks **the lowest queue, then the lowest ticket**. "Push to
-the tail of queue q" is "set `queue = q` and take a fresh ticket".
-
-That gives exact FIFO ordering inside every queue, makes queue 3's
-round-robin fall out for free, and needs no lock beyond the `p->lock` the
-kernel already takes while scanning `proc[]`. Four real queues would have
-needed their own lock, consistently ordered against `p->lock` and
-`wait_lock` at every site that changes process state — which is where this
-assignment usually deadlocks.
-
-### Where each scheduling rule lives
-
-| Rule | Implementation |
+| File | Responsibility |
 |---|---|
-| New process → tail of queue 0 | `allocproc()` sets queue 0, `kfork()` takes the ticket when it becomes runnable |
-| Strict priority selection | `scheduler()`, `#ifdef MLFQ` branch |
-| Exit leaves the queuing system | implicit — a ZOMBIE is never RUNNABLE |
-| Slice exhausted → drop a queue | `mlfq_tick()`, slices `{1,4,8,16}`; also checked in `sleep()` |
-| Queue 3 round-robin | same path — queue 3 re-tails itself |
-| Voluntary yield → tail of same queue | `requeue()`, from `wakeup()`/`kkill()` |
-| Boost every 48 ticks | `mlfq_boost()`, from `clockintr()` |
-| Preemption by a higher-priority arrival | `mlfq_higher_waiting()` |
+| `main.c` | Main loop: reap background jobs, print prompt, read, lex, validate, execute |
+| `shell.c` | `ShellState` setup (launch directory, user, host, job list) and teardown, including SIGHUP on exit |
+| `prompt.c` | Builds and prints `<user@host:path>` with the `~` substitution |
+| `input.c` | Reads a line with `read()`, handles EOF, Ctrl-C at the prompt and the 1024 character limit |
+| `token.c`, `command.c` | Token list storage and the `CommandLine` wrapper |
+| `lexer.c` | Character level scanner: operators, words, quotes, escapes |
+| `parser.c` | Recursive checker for the right linear grammar |
+| `sequence.c` | Splits a valid line on `;` and `&` and dispatches each part |
+| `exec.c` | Foreground commands, pipelines, background launch, terminal handoff, Ctrl-Z handling |
+| `exec_parse.c` | Turns tokens into argv arrays and redirection lists, one per pipeline stage |
+| `exec_resolver.c` | Finds the executable for a command name (`/` paths, current directory, `PATH`, `%name`) |
+| `exec_redir.c` | Opens redirection files and runs the input feeder and output fan-out helpers |
+| `builtin.c` | Dispatches intrinsic names to their implementations |
+| `hop.c`, `path_utils.c`, `frecency.c` | `hop`, shared `~`/`-`/path resolution, persistent frecency store |
+| `reveal.c`, `peek.c`, `locate.c` | Part B intrinsics |
+| `jobs.c` | Job and process tracking, SIGCHLD reaping, completion messages |
+| `signals.c` | Flag-only handlers for SIGCHLD, SIGINT and SIGALRM, plus ignore/restore of terminal signals |
+| `activities.c`, `resume.c`, `ping.c` | Part E intrinsics |
+| `spy.c`, `snoop.c` | Part F intrinsics |
 
-Preemption happens at tick boundaries, which is all §2.1.3 requires:
-`usertrap()`/`kerneltrap()` call `yield()` on a timer interrupt only when
-`mlfq_tick()` says the slice is spent or something better is waiting.
+### Features
 
-Ticks are charged on cpu0 only, so on several cpus a slice can run out
-between two of the process's own timer checks. `sleep()` repeats the check
-before the process goes to sleep, otherwise sleeping at that moment would
-dodge the demotion. The scheduler also rechecks the queue and ticket of the
-process it picked once it holds its lock, and scans again if either changed
-while it was looking.
+#### Part A: input
 
-Two deliberate judgement calls, both places the specification is silent:
+**A1, prompt.** The prompt is `<username@hostname:path> `. The directory the
+shell is started in is its home. If the working directory is that directory
+or below it, the prefix is replaced by `~` (so `~` or `~/src`); otherwise the
+absolute path is shown as is. The prompt is printed only when no foreground
+job is running.
 
-- **A process that yields early gets a fresh slice on return.** The rule
-  fixes its *priority* but says nothing about the partly-burnt slice.
-  Resetting is the plainer reading; it does mean a process that always
-  sleeps at 90% of its slice keeps top priority, which the 48-tick boost
-  bounds.
-- **A preempted process keeps both its queue and its part-burnt slice.**
-  Being displaced by an unrelated higher-priority arrival is not its fault,
-  and the rules only demote a process whose slice is genuinely spent.
+**A2, input.** Input is read with plain `read()` on stdin rather than stdio,
+so that `peek` can read the same stdin later without stdio having buffered it
+away. A line longer than 1024 characters is thrown away and reported as
+`cshell: invalid syntax`. An empty or all-whitespace line just gives a new
+prompt.
 
-### Instrumentation
+**A3, lexer and parser.** The lexer follows the character classes from the
+spec with maximal munch, so `>>` is one token and `hello|hi` is three.
+Adjacent fragments join into one word (`abc"123"'def'` is `abc123def`, and
+`""` is a valid empty word). Quoting rules:
 
-`procdump()` (Ctrl-P) prints the stock line plus, under MLFQ:
+- `\c` outside quotes gives `c`.
+- Inside `"..."`, `\"` gives `"` and `\\` gives `\`; any other `\c` keeps both characters.
+- Inside `'...'` everything is literal.
+- Operators inside quotes or after a backslash lose their meaning.
+
+An unclosed quote or a trailing `\` is a lexical error. The parser then checks
+the token list against the grammar (`LINE`, `ARG`, `CMD`, `TGT`, `BG`) with one
+small function per non-terminal. Nothing runs unless the whole line is valid;
+otherwise the shell prints `cshell: invalid syntax`. So `echo hi ;`,
+`echo hi & &`, `cat <`, `| sort` and `cmd & ;` are all rejected, while
+`echo hi &` and `sleep 1 & echo done` are accepted.
+
+#### Part B: intrinsics
+
+**B1, hop.** `hop` with no arguments or `~` goes to the home directory, `.`
+does nothing, `..` goes to the parent, `-` goes to the previous directory (or
+does nothing if there is none), and anything else is tried as a relative or
+absolute path (`~/sub` works too). Arguments are processed left to right, each
+as its own hop. If a bare name (no `/`, and not starting with `.`, `~` or `-`)
+does not resolve, `hop` falls back to frecency: it picks the highest ranked
+recorded directory whose path contains the name as a substring and still
+exists on disk. If nothing matches it prints `hop: no such directory`.
+
+Frecency is stored in `.cshell_frecency` inside the launch directory, one
+`path<TAB>score<TAB>last_visit` line per directory. Each successful hop into a
+new directory adds 1 to its score and updates the visit time. The rank is
+`score / (1 + days_since_last_visit)`, with ties broken by the more recent
+visit and then by path order, so the result is deterministic.
+
+**B2, reveal.** `reveal (-(a|t)*)* (~ | . | .. | - | name)?` lists a directory
+one entry per line, sorted by `strcmp` on the bare name. `-a` includes hidden
+entries but never `.` and `..` (like `ls -A`). `-t` recurses: each
+subdirectory is printed with a trailing `/` and its contents follow it with the
+relative prefix, as in the spec example. Names with spaces are wrapped in single
+quotes. Symlinks to directories are listed but not followed. Flags must come
+before the path; an unknown flag, a flag after the path, or more than one path
+gives `reveal: invalid syntax`. A path that does not resolve, or `reveal -`
+before any hop, gives `reveal: no such directory`.
+
+**B3, peek.** `peek` prints files in order, or stdin when there are no file
+arguments or the argument is `-`.
+
+- `-n` numbers non-empty lines only, and the count continues across files. Empty lines are still printed, without a number.
+- `-r` reverses the lines of each file separately, keeping the file order. For regular files it uses `lseek()` and reads backwards in 4096 byte chunks; pipes and stdin are buffered first.
+- With `-nr`, each number stays attached to its original line, so two two-line files print `2, 1, 4, 3`.
+
+Errors are `peek: no such file or directory` and `peek: is a directory`, and
+processing continues with the next argument. An unknown flag (which also
+covers file names starting with `-`, per the doubt doc) gives
+`peek: invalid syntax`.
+
+**B4, locate.** `locate name+` prints the absolute path of every executable
+that a POSIX shell would find for each name: first the current directory, then
+each `PATH` directory in order, without recursing. A match must be a regular
+file the current user can execute. Symlinks are printed as found, not
+resolved. A name with no match prints `locate: command not found (name)` and
+the remaining names are still processed. With no arguments it prints
+`locate: invalid syntax`.
+
+#### Part C: execution, redirection and pipes
+
+**C1, command execution.** A name containing `/` is run as a literal path.
+Otherwise the current directory is checked first, then `PATH`. `%name` skips
+the current directory and searches only `PATH` (the program still sees `name`
+as `argv[0]`). If nothing is found the shell prints
+`cshell: command not found (name)`. Programs run with `fork()` and `execve()`;
+`system()` and `popen()` are never used.
+
+**C2, input redirection.** Every `<` file is opened with `O_RDONLY` before
+anything is forked. If one fails, the shell prints
+`cshell: no such file or directory` and the command does not run. With several
+input files, a small feeder process writes them one after another into a pipe,
+and the command gets the read end on `STDIN_FILENO` through `dup2()`, so it sees
+one continuous stream.
+
+**C3, output redirection.** Each `>` opens with `O_TRUNC` and each `>>` with
+`O_APPEND`, both with `O_CREAT` and mode `0644`. If any file cannot be opened
+the shell prints `cshell: unable to create file for writing` and does not run
+the command. The command writes into a pipe, and a fan-out process copies
+everything to every listed file, so `echo hi > a > b` fills both. Nothing
+reaches the terminal.
+
+**C4, pipes.** One `pipe()` per `|` and one child per stage. Each child
+connects its pipe ends, closes every pipe descriptor it does not need, then
+applies its own redirections, so `cmd > file | next` sends the output to the
+file and `next` sees EOF. The parent closes all pipe ends and waits for every
+stage. A stage that cannot be found prints `cshell: command not found (name)`
+from its own child, and the other stages still run. Intrinsics work in
+pipelines and with redirection too; they run in a forked child in that case.
+
+#### Part D: sequential and background execution
+
+**D1, sequential.** A line is split on `;` and each part (which can be a whole
+pipeline with redirections) runs to completion before the next one starts. The
+sequence stops early only when a command could not be executed
+(`command not found`) or when a foreground job is stopped with Ctrl-Z. A
+command that runs and exits with a non-zero status does not stop it.
+
+**D2, background.** Each part that ends in `&` is launched as its own job
+without waiting, and a whole pipeline before `&` goes to the background
+together. The shell prints `[job_number] pid`, where pid is the first process
+of the pipeline. A trailing part with no `&` (as in `sleep 1 & sleep 2 & cat`)
+runs in the foreground, which is what the grammar and the spec example imply.
+When a background job finishes, the shell prints
+`name with pid N exited normally` if the first process exited on its own (any
+exit code), or `exited abnormally` if a signal killed it. For a pipeline this
+message is printed once, for the first command, after the whole group is done.
+
+#### Part E: job control
+
+**E1, activities.** Every job runs in its own process group: `setpgid()` is
+called in the parent right after `fork()` and again in the child. `activities`
+first reaps anything that has changed state, then prints the jobs oldest first:
+
+```text
+[1] pgid 4021
+  4021 sleep Running
+[2] pgid 4030
+  4030 cat Running
+  4031 sort Running
+```
+
+Processes that already exited are left out. The Running/Stopped state is kept
+current because the reaper also collects `WUNTRACED` and `WCONTINUED` events.
+
+**E2, terminal control.**
+
+- The shell installs a flag-only handler for SIGINT (so it never dies from Ctrl-C) and ignores SIGTSTP and SIGTTOU. Every child puts these back to their defaults before `execve()`, since an ignored disposition would otherwise survive `exec` and make the job immune to Ctrl-C and Ctrl-Z.
+- Before waiting on a foreground job the shell hands it the terminal with `tcsetpgrp()`, and takes it back once the job finishes or stops. Background jobs never get the terminal.
+- Ctrl-C kills only the foreground job. The shell then prints a newline so the next prompt starts on a clean line. Ctrl-C at an empty prompt just gives a fresh prompt.
+- Ctrl-Z stops the foreground job (seen through `waitpid(..., WUNTRACED)`). The shell adds it to the job list and prints `[job_number] + Stopped    command`.
+- Ctrl-D on an empty prompt exits. If a job is Stopped, the shell prints `cshell: there are stopped jobs` and stays. A second Ctrl-D straight after that exits anyway. Ctrl-D on a half-typed line only flushes the text to `read()`, as the doubt doc describes, so the shell exits on the next Ctrl-D.
+- On any exit, the shell sends SIGHUP to the process group of every tracked job and does not wait for them.
+
+**E3, resume.** The syntax is `resume %N bg` or `resume %N fg [--timeout S]`,
+where S is a non-negative integer. Anything else gives
+`resume: invalid syntax`, and an unknown job gives `resume: no such job`. In
+both modes the shell sends SIGCONT to the job's group and marks it Running.
+
+- `bg` prints `[N] + Running    command` and returns at once.
+- `fg` prints the command line, gives the job the terminal and waits. If the job stops again, the shell prints the Stopped line with the same job number. If it finishes, it is quietly removed.
+- With `--timeout S`, the shell calls `alarm(S)` before waiting. If the alarm fires first, it sends SIGTERM to the group, prints `resume: job timed out`, takes the terminal back and removes the job. If the job ends or stops before that, the alarm is cancelled with `alarm(0)`. `--timeout 0` sends SIGTERM straight away.
+
+**E4, ping.** `ping <target> <signal_number>` checks the signal number first:
+anything that is not a non-negative integer (including negatives) prints
+`ping: invalid syntax`, even if the target is also bad. A plain number is a
+pid and gets the signal on its own; `%N` is a job and the whole group gets it.
+The signal actually sent is `signal_number % 64`. On success the shell prints
+`Sent signal <typed number> to <typed target>`, echoing exactly what was typed.
+A target that is not a process or job this shell is tracking prints
+`ping: no such process found`, even if that pid exists on the system. When
+the signal is SIGSTOP or SIGCONT, the job's state is updated immediately so
+`activities` shows it right away.
+
+#### Part F: spy and snoop
+
+**F1, spy.** `spy [pid]` lists open files by reading `/proc`, in this order:
+
+```text
+PID    FD    TYPE   PATH
+812    cwd   DIR    /home/chandrani
+812    txt   REG    /usr/bin/sleep
+812    mem   REG    /usr/lib/x86_64-linux-gnu/libc.so.6
+812    0     CHR    /dev/pts/0
+```
+
+`cwd` and `txt` come from `readlink()` on `/proc/pid/cwd` and `/proc/pid/exe`.
+`mem` rows come from `/proc/pid/maps`, one row per unique file (the executable
+is left out because it is already the `txt` row). Numeric descriptors come from
+`/proc/pid/fd` in ascending order. TYPE (`REG`, `DIR`, `CHR`, `BLK`, `FIFO`,
+`LNK`, `SOCK`) comes from `stat()` on the `/proc` entry itself, which is why a
+pipe shows up as `FIFO` even though its "path" is `pipe:[12345]`. With no
+argument it reports the shell, using the pid saved at startup, so the answer
+is still the shell's even when `spy` runs in a child because of a pipe or
+redirection. Errors: `spy: no such process`, and `spy: invalid syntax` for
+more than one argument or a non-numeric one.
+
+**F2, snoop.** `snoop command [args...]` forks, calls `PTRACE_TRACEME` in the
+child and runs the command with `execve()`. `snoop -p pid` uses
+`PTRACE_ATTACH`. The tracer then loops on `PTRACE_SYSCALL` with
+`PTRACE_O_TRACESYSGOOD` set, reads the syscall number from `orig_rax` at each
+entry stop, and measures the time from entry to exit with `CLOCK_MONOTONIC`.
+When the tracee exits, it prints a summary sorted by call count, with ties in
+order of first occurrence:
+
+```text
+syscall         calls   time
+nanosleep       1       1.000s
+write           1       0.000s
+exit_group      1       0.000s
+```
+
+Numbers missing from my name table print as `syscall_N`. Calls are counted at
+entry, so `exit_group`, which never returns, still shows up once with 0.000s,
+as in the spec. Errors are `snoop: command not found`, `snoop: no such process`
+and `snoop: invalid syntax`.
+
+### Assumptions and design decisions
+
+- **Home is the launch directory.** `~` means the directory `shell.out` was started from, not `$HOME`. Only the prompt, `hop` and `reveal` understand `~`; the lexer does not expand it, so external commands receive it literally.
+- **Frecency file.** The store is `.cshell_frecency` in the launch directory. That satisfies the doubt doc's rule that it only has to persist when the shell is launched from the same folder. It is rewritten after every recorded hop. The previous directory for `hop -` is not saved between sessions.
+- **When frecency is used.** The fallback only applies to bare names. Something like `foo/bar` or `../x` either resolves as a path or fails. A hop is recorded only when the directory actually changes, so `hop .` and hopping to the directory you are already in do not count.
+- **Where messages go.** Errors from command lookup, redirection, `hop`, `reveal`, `peek`, `spy` and `snoop` go to stderr, which the doubt doc prefers. `cshell: invalid syntax`, `cshell: there are stopped jobs`, the `locate`, `resume` and `ping` messages, and job notices go to stdout.
+- **When completion messages appear.** The SIGCHLD handler only sets a flag. The actual `waitpid(-1, ..., WNOHANG)` loop runs in the main loop right before the prompt is drawn, which is the bash-style option the doubt doc accepts. This way a message never lands in the middle of a line the user is typing. The trade-off is that at an idle prompt you see the message after pressing Enter. Completions that happen while a foreground job runs are reported after it finishes.
+- **Job line comes first.** Background children wait on a small sync pipe until the parent has printed and flushed `[N] pid`, so that line always comes before the job's own output (doubt doc Q47).
+- **Background jobs keep terminal stdin.** I do not redirect a background job's stdin to `/dev/null`. It is in its own process group and never receives the terminal, so if it tries to read, the kernel stops it with SIGTTIN before it gets any input. This keeps jobs like `cat | sort &` alive, which the E1 and E4 examples depend on.
+- **SIGTTIN and SIGTTOU stops show as Running.** A job stopped by the terminal in this way is still listed as `Running` in `activities`, to match the spec's `cat | sort &` example. It also does not count as a stopped job for the Ctrl-D check. Only real stops (Ctrl-Z, SIGSTOP through `ping`) show as `Stopped`.
+- **Job numbers keep increasing.** One counter per run of the shell, shared by background launches and jobs created by Ctrl-Z. Numbers are never reused (doubt doc Q53).
+- **Intrinsics with pipes or redirection run in a child.** This follows bash, so `hop x | cat` does not change the shell's directory (Q43). The child flushes stdio before `_exit()`, because output to a pipe or file is fully buffered and would otherwise be lost.
+- **Ctrl-Z is ignored during snoop.** The traced command stays in the shell's own foreground process group and is not a job, so a stopped tracee would leave the shell stuck waiting inside `snoop` with no way to resume it. For that reason the tracer swallows SIGTSTP. Other signals, including SIGINT, are passed on to the tracee, so Ctrl-C still kills a snooped command. With `-p`, Ctrl-C detaches from the process and prints what was collected so far.
+- **snoop -p and ptrace_scope.** On WSL and most Ubuntu setups `/proc/sys/kernel/yama/ptrace_scope` is 1, which only allows attaching to your own descendants. So `snoop -p` works on jobs this shell started (for example `sleep 100 &`), but not on unrelated processes. In that case it prints `snoop: cannot attach to process`, which is separate from `snoop: no such process`.
+- **spy on other users' processes.** For those processes `/proc` hides the links, so rather than print an empty table I print `spy: permission denied`.
+- **Very long input.** Lines over 1024 characters are rejected as invalid syntax instead of being cut short.
+- **Stopped jobs on exit.** The shell sends SIGHUP but not SIGCONT, since the spec only asks for SIGHUP without waiting. A stopped job may therefore stay stopped until something continues it.
+
+### Known limitations
+
+- Line editing is whatever the terminal's canonical mode offers: no history, no tab completion, no arrow keys.
+- There are fixed limits of 128 arguments per command, 32 redirections per command and 32 stages per pipeline.
+- `hop a missing b` prints the error for `missing` but still tries `b`, while the doubt doc says to stop at the last valid hop.
+- If any stage of a pipeline has a redirection file that cannot be opened, the whole pipeline is not started. Output files are opened left to right, so ones before the failing file may already be created or truncated.
+- A background command that does not exist still takes a job number, prints its `[N] pid` line and the not-found error, and is later reported as `exited normally` (exit status 127).
+- Inside a foreground pipeline, a stage that really exits with status 127 is treated like "command not found" and stops a `;` sequence.
+- `resume ... fg --timeout` sends SIGTERM only once. A job that ignores SIGTERM keeps the shell waiting until it exits or is interrupted with Ctrl-C.
+- `resume` and `ping` only make sense in the shell process itself. In a pipeline or with redirection they run in a child that cannot wait on or update the shell's jobs.
+- `snoop` reads registers with `user_regs_struct` and `orig_rax`, so it only works on x86-64. Its times include ptrace overhead, and it follows only the main traced process, not any children it forks.
+- Error streams are not fully consistent: some intrinsic errors still go to stdout, as listed above.
+
+## xv6 Scheduler
+
+`xv6/` is MIT's xv6-riscv with a Multi-Level Feedback Queue (MLFQ) scheduler added next to the stock round robin one. It is a recent xv6 revision, so a few names differ from older write-ups: the kernel prints with `printk()`, exit is `kexit()`, fork is `kfork()`, and the sleep syscall is `pause()`.
+
+What I added:
+
+- **MLFQ**, selected with `SCHEDULER=MLFQ`: four queues, time slices of 1, 4, 8 and 16 ticks, preemption at tick boundaries and a priority boost every 48 ticks.
+- **FIFO**, selected with `SCHEDULER=FIFO`, so there is a third policy for the comparison.
+- **Round robin** stays the default. The policy is untouched; it only gained timing bookkeeping.
+- **`waitx`**, a syscall that reaps a child and returns its turnaround, waiting, response and running time.
+- **`schedulertest`**, a user program that forks children with different CPU burst lengths and reports their stats.
+- **`plot_mlfq.py`**, which draws the queue timeline and the comparison charts.
+- **`report.pdf`**, the report with the implementation summary, the plots and the analysis.
+
+### Toolchain and build (WSL)
+
+```bash
+sudo apt install gcc-riscv64-unknown-elf qemu-system-riscv
+cd xv6
+```
+
+The package really is `qemu-system-riscv`. Older xv6 instructions say `qemu-system-misc`, but recent Ubuntu releases moved `qemu-system-riscv64` into its own package.
+
+Pick the policy when you build:
+
+```bash
+make clean && make qemu                          # round robin (default)
+make clean && make qemu SCHEDULER=RR             # same thing, spelled out
+make clean && make qemu SCHEDULER=MLFQ           # multi-level feedback queue
+make clean && make qemu SCHEDULER=FIFO           # first come first served
+make clean && make qemu SCHEDULER=MLFQ TRACE=1   # MLFQ plus the per-tick trace
+make clean && make qemu SCHEDULER=MLFQ CPUS=1    # any of the above on one cpu
+```
+
+- `make clean` between policies is required. The `-D$(SCHEDULER)` flag is not a make dependency, so without a clean the old object files get reused and you silently run the previous scheduler.
+- The Makefile only accepts `MLFQ`, `FIFO` or `RR`. Anything else stops the build with `SCHEDULER must be MLFQ, FIFO or RR`. `RR` and an unset `SCHEDULER` both compile with no scheduler macro, which is the original code path.
+- `CPUS` defaults to 3. All the measurements below use `CPUS=1`.
+- Inside QEMU, Ctrl-P prints the process table and Ctrl-A then X quits.
+- Do not press the arrow keys at the xv6 prompt. The console has no line editing, so the escape sequences end up as junk in the command.
+
+### MLFQ implementation
+
+Each item below matches one item in the spec's implementation summary.
+
+**SCHEDULER macro (Makefile).** `SCHEDULER=MLFQ` or `SCHEDULER=FIFO` adds `-DMLFQ` or `-DFIFO` to `CFLAGS`, and `proc.c` and `trap.c` pick their code with `#ifdef MLFQ` / `#elif defined(FIFO)` / `#else`. `TRACE=1` adds `-DMLFQTRACE`. `NQUEUE` (4) and `BOOST_INTERVAL` (48) live in `kernel/param.h`.
+
+**struct proc changes (`kernel/proc.h`).** All of these are protected by `p->lock`, same as `state`:
+
+| Field | Meaning |
+|---|---|
+| `queue` | MLFQ priority, 0 (highest) to 3 (lowest) |
+| `slice_used` | ticks used out of the current queue's slice |
+| `enter_seq` | ticket for the position inside a queue, smaller is nearer the head |
+| `ctime` | tick the process was created on |
+| `etime` | tick it exited on, 0 while alive |
+| `rtime` | ticks spent RUNNING |
+| `wtime` | ticks spent RUNNABLE (sitting in the ready queue) |
+| `first_run` | tick it first got the CPU, -1 until then |
+
+**allocproc() and kfork().** `allocproc()` sets `queue = 0`, `slice_used = 0`, `ctime = ticks`, `first_run = -1` and zeroes the rest. When `kfork()` (or `userinit()` for init) marks the process RUNNABLE it calls `requeue()`, which gives it a fresh ticket, so a new process lands at the tail of queue 0.
+
+**Queue selection without linked lists.** There are no real queue structures. A process's place is just the pair `(queue, enter_seq)`, and tickets come from one global counter (`alloc_enter_seq()`, under `seq_lock`). The `#ifdef MLFQ` branch of `scheduler()` scans `proc[]` and picks the RUNNABLE process with the lowest queue, breaking ties by the lowest ticket. "Push to the tail of queue q" becomes "set `queue = q` and take a new ticket". This gives FIFO order inside every queue, round robin in queue 3 comes for free, and no extra lock is needed besides the `p->lock` the scan already takes. Since the scan releases each lock as it goes, the scheduler re-locks the chosen process and checks that its state, queue and ticket have not changed before running it; if another CPU got there first, it just scans again. A process that exits becomes a ZOMBIE and is never RUNNABLE again, so it drops out of selection on its own.
+
+**Preemption (`kernel/trap.c`).** Under MLFQ, `usertrap()` and `kerneltrap()` only call `yield()` on a timer interrupt when `mlfq_tick()` returns true. `mlfq_tick()` returns true in two cases:
+
+1. The slice is used up (`slice_used >= mlfq_slice(queue)`). The process moves down one queue (it stays in queue 3 if it is already there), `slice_used` resets and it takes a new ticket, which puts it at the tail.
+2. `mlfq_higher_waiting(queue)` finds a RUNNABLE process in a strictly higher queue. In that case the process keeps its queue, its partly used slice and its ticket, so it goes back to the front of its own queue once the better process is done. Being displaced is not its fault, and the spec only demotes a process whose slice is really spent.
+
+Preemption therefore happens at tick boundaries, which is what the spec asks for.
+
+**Time slices.** `mlfq_slices[] = {1, 4, 8, 16}` in `proc.c`, read through `mlfq_slice()`. Ticks are charged by `update_time()`, which `clockintr()` calls on cpu0 once per tick, *before* `ticks++` and `wakeup(&ticks)`. It adds one to `rtime` and `slice_used` of every RUNNING process and one to `wtime` of every RUNNABLE one. Charging before the wakeup matters: a process that slept through the tick is counted as asleep, not as waiting.
+
+Because only cpu0 charges ticks, on several CPUs a process can use up its slice between two of its own timer checks. `sleep()` repeats the slice check under `#ifdef MLFQ` and demotes the process before it sleeps, otherwise going to sleep at exactly that moment would dodge the demotion.
+
+**Voluntary yield.** When a process sleeps (for I/O, `pause()`, `wait()` and so on) its `queue` is left alone. When `wakeup()` or `kkill()` makes it RUNNABLE again, `requeue()` resets `slice_used` and gives it a new ticket, so it rejoins the tail of the same queue with a fresh slice. The spec fixes the priority but says nothing about the partly used slice, and resetting it is the simpler reading. The catch is that a process which always sleeps just before its slice ends keeps its priority, which the boost bounds.
+
+**Priority boost.** `clockintr()` calls `mlfq_boost()` when `ticks % BOOST_INTERVAL == 0`. It moves every process that is not UNUSED or ZOMBIE to queue 0 and resets `slice_used`. Tickets are kept, so processes land in queue 0 in the same relative order they already had.
+
+**procdump (Ctrl-P).** Under MLFQ every line gets the queue, the slice used out of that queue's slice, the ticket, the running and waiting totals and the ticks left until the next boost:
 
 ```
-4 run schedulertest q3 slice 12/16 seq 7 run 25 wait 0 boost in 21
+4 run    schedulertest  q3 slice 12/16 seq 7  run 25 wait 0  boost in 21
 ```
 
-queue, ticks burnt out of that queue's slice, FIFO ticket, running and
-waiting totals, and ticks until the next boost.
+**Trace output.** With `TRACE=1`, `update_time()` prints one line per tick for each RUNNING or RUNNABLE process:
 
-Every process also carries `ctime`/`etime`/`rtime`/`wtime`/`first_run`,
-maintained by `update_time()` once per tick. **These are compiled into
-every build, not just MLFQ** — §2.2 needs the same numbers out of plain
-round-robin, and they are impossible to produce otherwise. They only ever
-write bookkeeping fields and never influence a scheduling decision, so the
-round-robin *policy* is still untouched; it is merely instrumented.
+```
+MLFQTRACE <tick> <pid> <queue> <1 if running, else 0>
+```
 
-`waitx(int *turnaround, int *waiting, int *response, int *running)` (syscall
-23) exposes them to user space. `kwait()` and `kwaitx()` are thin wrappers
-over one shared `kwait_stats()`, which reads the statistics **before**
-`freeproc()` recycles the slot and zeroes them.
+Sleeping processes are not printed, so they show up as gaps. This is off by default because it does console output from inside the timer interrupt.
 
-### Measuring and plotting
+### FIFO and RR
 
-`user/schedulertest.c` takes `schedulertest [nproc] [rounds]` (defaults 4
-and 5). Every child repeatedly burns the CPU for a burst and then sleeps with
-`pause(1)`, as §2.3.2 asks, and each child gets a different burst length,
-cycling through 1, 40, 150 and 600 units of work. Under qemu that is roughly
-well under a tick, 2, 7 and 30 ticks, so under MLFQ the children settle in
-queues 0, 1, 2 and 3 respectively (the exact tick counts depend on the host,
-so the trace is the thing to check). Shorter bursters are given
-proportionally more rounds so they are not all gone after the first boost or
-two; they still do not finish together, since waiting time differs a lot
-between them. `rounds` is capped at 100. Results are reported per pid, with its burst, and
-averaged, via `waitx`. The same arguments must be used for every scheduler
-or the comparison is meaningless.
+**FIFO** (`SCHEDULER=FIFO`) is non-preemptive and serves a ready queue. `requeue()` hands out a ticket whenever a process becomes runnable (after fork or on wakeup), and `scheduler()` runs the RUNNABLE process with the smallest ticket. The timer interrupt never calls `yield()` under FIFO, so a process keeps the CPU until it sleeps or exits.
 
-`TRACE=1` makes the kernel emit `MLFQTRACE <tick> <pid> <queue> <running?>`
-once per tick for every running or runnable process; sleeping processes
-are not sampled and show up as gaps. Capture the console output and feed it
-to `plot_mlfq.py`, which produces the two report figures. Tracing is off by
-default because it does console I/O from inside the timer interrupt.
+**RR** is the stock xv6 scheduler loop and the stock yield on every timer tick. The only changes on this path are the timing fields: `first_run` gets set in `scheduler()` and `update_time()` does the per-tick counting. None of this affects which process runs, so the policy is exactly the original one, just instrumented. This was needed because the comparison needs the same numbers out of RR.
 
-Build first, so the compiler output stays out of the capture:
+### The waitx syscall
+
+```c
+int waitx(int *turnaround, int *waiting, int *response, int *running);
+```
+
+It is syscall 23 (`SYS_waitx`), wired through `syscall.h`, `syscall.c`, `sysproc.c` (`sys_waitx`), `user/usys.pl` and `user/user.h`. It works like `wait()`: it blocks until a child exits, reaps it and returns its pid, or -1 if there are no children. It does not return the exit status. `kwait()` and `kwaitx()` both wrap one function, `kwait_stats()`, which copies the stats out before `freeproc()` clears the slot. Any pointer can be 0 to skip that value.
+
+All values are in ticks:
+
+| Metric | Definition |
+|---|---|
+| turnaround | `etime - ctime`, from creation to exit |
+| waiting | `wtime`, ticks spent RUNNABLE |
+| response | `first_run - ctime`, from creation until it first got the CPU (-1 if it never ran) |
+| running | `rtime`, ticks spent RUNNING |
+
+### schedulertest
+
+```
+schedulertest [nproc] [rounds]
+```
+
+- `nproc` defaults to 4 and is capped at 16. `rounds` defaults to 5 and is capped at 100. Values of 0 or less fall back to the defaults.
+- Child `i` gets a burst of `bursts[i % 4]`, cycling through **1, 40, 150 and 600** units of work. One unit is 2,000,000 iterations of a busy loop. Under QEMU a tick is roughly 15 to 25 units, so the bursts are well under a tick, about 2 ticks, about 7 ticks and about 30 ticks, aimed at queues 0, 1, 2 and 3. The exact tick counts depend on the host, so check the trace rather than assume.
+- Each child does `rounds * 625 / (burst + 25)` rounds, where one round is `burn(burst)` followed by `pause(1)`. So short bursters get more rounds (for `rounds = 5`: 120, 48, 17 and 5) and every child lives about as long as the longest one. Without this, the short ones would finish early and later boosts would only ever catch the long burster.
+- The parent then calls `waitx()` once per child and prints a line per child, followed by the averages to two decimals:
+
+```
+schedulertest: 4 processes, 5 rounds
+  pid 5 burst 1: turnaround ...  waiting ...  response ...  running ...
+  ...
+schedulertest: over 4 processes -- avg turnaround ..., avg waiting ..., avg response ..., avg running ...
+```
+
+For a fair comparison, use the same arguments and the same CPU count for every scheduler.
+
+### Reproducing the results
+
+**Comparison.** Run the same workload under each policy on one CPU:
+
+```bash
+make clean && make qemu SCHEDULER=FIFO CPUS=1   # then: schedulertest 4 5
+make clean && make qemu SCHEDULER=RR   CPUS=1   # then: schedulertest 4 5
+make clean && make qemu SCHEDULER=MLFQ CPUS=1   # then: schedulertest 4 5
+```
+
+and repeat with `schedulertest 8 3` (two children per burst length).
+
+**Trace.** Build first, so the compiler output stays out of the capture, then boot with `tee`:
 
 ```bash
 make clean && make SCHEDULER=MLFQ TRACE=1 CPUS=1 kernel/kernel fs.img
 make qemu SCHEDULER=MLFQ TRACE=1 CPUS=1 | tee trace.txt
-# run: schedulertest 4 5, then ctrl-a x
-python3 plot_mlfq.py trace.txt
+# at the xv6 prompt: schedulertest 4 5, wait for the averages, then Ctrl-A X
 ```
 
-## Build and run in WSL
+The trace used in the report is committed as `xv6/trace.txt`.
+
+**Plots.** These need Python 3 with matplotlib:
 
 ```bash
-cd /mnt/c/Users/CHANDRANI/Downloads/mini-project1/c-shell
-make clean && make all
-./shell.out
+python3 plot_mlfq.py trace.txt        # optional: -o <output dir>
 ```
 
-Ctrl+D to quit the shell
+This writes four PNGs, all watermarked `chandrani.saha`:
 
-The required compiler flags are included in the Makefile. The executable is
-created as `c-shell/shell.out`. `make test` runs the A3 grammar unit tests.
+| File | Contents |
+|---|---|
+| `mlfq_timeline.png` | queue of each process over time, one colour per pid, boosts marked every 48 ticks |
+| `scheduler_comparison.png` | average turnaround, waiting and response for `schedulertest 4 5` |
+| `scheduler_comparison_8_3.png` | the same for `schedulertest 8 3` |
+| `waiting_by_burst.png` | waiting time split by burst length, for both workloads |
 
-For xv6 you need a RISC-V cross-compiler and `qemu-system-riscv64`:
+Only the timeline is built from the trace file. The comparison numbers are the measured averages, stored in the script. The PNGs are not kept in the repo because they are already in `report.pdf`. Running the script regenerates them.
 
-```bash
-sudo apt install gcc-riscv64-unknown-elf qemu-system-riscv
-cd /mnt/c/Users/CHANDRANI/Downloads/mini-project1/xv6
-make clean && make qemu SCHEDULER=MLFQ
-```
+**Results** (single CPU, averages in ticks):
 
-Note the package is `qemu-system-riscv`, not the `qemu-system-misc` that
-older xv6 instructions name — recent Ubuntu releases split RISC-V out into
-its own package, and `qemu-system-misc` no longer ships
-`qemu-system-riscv64`.
+| Workload | Scheduler | Turnaround | Waiting | Response |
+|---|---|---|---|---|
+| `schedulertest 4 5` | FIFO | 265.50 | 148.00 | 2.00 |
+| | RR | 274.00 | 152.00 | 0.75 |
+| | MLFQ | **197.00** | **75.25** | 0.75 |
+| `schedulertest 8 3` | FIFO | 308.63 | 236.25 | 17.75 |
+| | RR | 327.00 | 253.88 | 2.25 |
+| | MLFQ | **239.13** | **166.88** | 2.25 |
 
-`make clean` between policies is required: the `-D$(SCHEDULER)` macro is not
-tracked by make's dependency rules, so stale object files would be reused
-and you would silently run the previous scheduler. There is no `make all`
-target — `make` builds the kernel, `make qemu` builds and boots it.
+MLFQ has the lowest turnaround and waiting on both workloads, since the short bursters stay in the high queues and hardly wait. RR matches its response time. FIFO's response time falls apart once there are more children, because a newly runnable process has to wait behind whole bursts. Timings under QEMU shift a bit between runs (the committed trace is from a separate MLFQ run and its averages differ slightly), but the ordering stays the same. The full discussion, the timeline and the per-burst breakdown are in `xv6/report.pdf`.
 
-Ctrl-P dumps the process table, Ctrl-A then X quits QEMU.
+### Testing and known limitations
+
+- `usertests -q` passes under MLFQ on both 1 and 3 CPUs, and under RR.
+- Under FIFO, `usertests` hangs at the `preempt` test. That is by design: the test needs a spinning child to be taken off the CPU, and a non-preemptive scheduler never does that.
+- Under MLFQ, running `usertests reparent` on its own right after boot can fail. The test orphans a lot of processes that init has to reap. Init gets demoted whenever it happens to be running at a tick boundary, and the stream of fresh queue 0 forks can then keep it off the CPU until the next boost while zombies fill the process table. This is strict priority starving a low queue process, which is exactly what the 48-tick boost exists to bound, so I did not special-case init. The same test passes inside the full `usertests -q` run.
+- All accounting is sampled once per tick on cpu0. A process that runs for part of a tick is charged the whole tick if it is RUNNING at the sample, and nothing if it is not. That is why response times come out as small whole numbers, and a burst "well under a tick" can still show up as a tick of running time. The trace has the same granularity, and sleeping processes only appear as gaps in it.
