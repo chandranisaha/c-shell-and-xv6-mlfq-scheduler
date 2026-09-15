@@ -47,9 +47,9 @@ NQUEUE = 4           # kernel/param.h
 # Measured with `schedulertest 4 5` on a single cpu, the same workload run
 # under each scheduler in turn. Ticks.
 COMPARISON = {
-    "FIFO": {"turnaround": 38.50, "waiting": 14.66, "response": 11.16},
-    "RR":   {"turnaround": 40.16, "waiting": 16.16, "response": 1.50},
-    "MLFQ": {"turnaround": 33.33, "waiting": 9.00, "response": 1.50},
+    "FIFO": {"turnaround": 265.50, "waiting": 148.00, "response": 2.00},
+    "RR":   {"turnaround": 274.00, "waiting": 152.00, "response": 0.75},
+    "MLFQ": {"turnaround": 197.00, "waiting": 75.25, "response": 0.75},
 }
 
 
@@ -110,7 +110,9 @@ def plot_timeline(series, out_path):
     if not pids:
         sys.exit("trace only has init in it -- run schedulertest while "
                  "capturing")
-    colours = plt.cm.tab20(range(len(pids)))
+    # tab20 pairs light and dark shades, so only use it once tab10 runs out
+    palette = plt.cm.tab10 if len(pids) <= 10 else plt.cm.tab20
+    colours = palette(range(len(pids)))
 
     # Processes sitting in the same queue would otherwise draw exactly on top
     # of each other and only the last one would be visible. Nudge each pid a
