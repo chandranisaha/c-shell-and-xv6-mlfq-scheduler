@@ -40,14 +40,17 @@ alloc_enter_seq(void)
   return seq;
 }
 
-#ifdef MLFQ
+// a process that becomes runnable joins the tail of its queue
 static void
-mlfq_requeue(struct proc *p)
+requeue(struct proc *p)
 {
+#ifdef MLFQ
   p->slice_used = 0;
-  p->enter_seq = alloc_enter_seq();
-}
 #endif
+#if defined(MLFQ) || defined(FIFO)
+  p->enter_seq = alloc_enter_seq();
+#endif
+}
 
 #ifdef MLFQ
 void
@@ -378,6 +381,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  requeue(p);
 
   release(&p->lock);
 }
@@ -451,6 +455,7 @@ kfork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  requeue(np);
   release(&np->lock);
 
   return pid;
@@ -652,8 +657,10 @@ scheduler(void)
     }
 
     acquire(&best->lock);
-    // recheck: another core may have taken it while we were scanning
-    if (best->state == RUNNABLE) {
+    // recheck: another core may have taken it, or it may have been requeued,
+    // while we were scanning. if so, scan again
+    if (best->state == RUNNABLE && best->queue == best_queue &&
+        best->enter_seq == best_seq) {
       if (best->first_run < 0)
         best->first_run = ticks;
       best->state = RUNNING;
@@ -687,7 +694,7 @@ scheduler(void)
     }
 
     acquire(&best->lock);
-    if (best->state == RUNNABLE) {
+    if (best->state == RUNNABLE && best->enter_seq == best_seq) {
       if (best->first_run < 0)
         best->first_run = ticks;
       best->state = RUNNING;
@@ -829,6 +836,12 @@ sleep(void)
 
   acquire(&p->lock);
   if (p->chan != 0) {
+#ifdef MLFQ
+    // the slice can run out between two of this core's timer checks, since
+    // ticks are charged on cpu0, so demote here or sleeping would dodge it
+    if (p->slice_used >= mlfq_slice(p->queue) && p->queue < NQUEUE - 1)
+      p->queue++;
+#endif
     p->state = SLEEPING;
     sched();
   }
@@ -852,9 +865,7 @@ wakeup(void *chan)
       // go to sleep, also set it back to RUNNING.
       if (p->state == SLEEPING) {
         p->state = RUNNABLE;
-#ifdef MLFQ
-        mlfq_requeue(p);
-#endif
+        requeue(p);
       }
     }
     release(&p->lock);
@@ -876,9 +887,7 @@ kkill(int pid)
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
-#ifdef MLFQ
-        mlfq_requeue(p);
-#endif
+        requeue(p);
       }
       release(&p->lock);
       return 0;
