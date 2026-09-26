@@ -1,6 +1,8 @@
 # C-Shell and xv6 MLFQ Scheduler
 
-Two systems programming projects built by Chandrani Saha: a Unix shell written from scratch in C, and a multi-level feedback queue scheduler added to the xv6 teaching kernel.
+Chandrani Saha
+
+Two systems programming projects: a Unix shell written from scratch in C, and a multi-level feedback queue scheduler added to the xv6 teaching kernel.
 
 What's inside:
 
