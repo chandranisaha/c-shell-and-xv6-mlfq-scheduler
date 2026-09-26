@@ -12,3 +12,5 @@ xv6/user/_*
 xv6/user/usys.S
 xv6/kernel/kernel
 xv6/mkfs/mkfs
+
+AI-usage*.pdf
